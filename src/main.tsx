@@ -2,10 +2,14 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { isSupabaseConfigured } from './lib/supabase';
+import {
+  isSupabaseConfigured,
+  isSupabaseRequested,
+  shouldLoadFromSupabase,
+} from './lib/supabase';
 
 async function bootstrap() {
-  if (isSupabaseConfigured) {
+  if (shouldLoadFromSupabase) {
     try {
       const { supabaseSync } = await import('./lib/supabase-sync');
       const loaded = await supabaseSync.loadAll();
@@ -17,8 +21,10 @@ async function bootstrap() {
     } catch (error) {
       console.warn('Supabase initialization failed; using seed data:', error);
     }
+  } else if (isSupabaseRequested && !isSupabaseConfigured) {
+    console.warn('Supabase mode was requested without a URL and publishable key; using seed data.');
   } else {
-    console.info('Using synthetic seed data (Supabase is not configured)');
+    console.info('Using synthetic seed data');
   }
 
   createRoot(document.getElementById('root')!).render(

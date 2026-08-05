@@ -71,7 +71,7 @@ export default function GroupInfoDialog({ groupId, open, onOpenChange }: GroupIn
       const entityComments = store.getEntityComments('group', groupId);
       setComments(entityComments);
     }
-  }, [groupId, open]);
+  }, [groupId, open, store]);
 
   if (!group) return null;
 

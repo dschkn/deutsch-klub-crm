@@ -87,7 +87,7 @@ export default function Groups() {
     } else {
       setGroupComments([]);
     }
-  }, [selectedGroup]);
+  }, [selectedGroup, store]);
 
   const handleAddComment = () => {
     if (!newComment.trim() || !selectedGroup) return;
