@@ -13,6 +13,11 @@ concurrency:
   group: deutsch-klub-crm-test-development
   cancel-in-progress: true
 
+env:
+  DEPLOY_HOST: boatbehind.online
+  DEPLOY_USER: deutschklub
+  EXPECTED_HOST_FINGERPRINT: SHA256:T3Pj0ugw+blhrlr/bUoRQwEKFT8i+9dc5rw0ztKrZ1U
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -39,29 +44,22 @@ jobs:
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           test -n "$DEPLOY_SSH_KEY"
-          test -n "$DEPLOY_KNOWN_HOSTS"
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H -t ed25519 "$DEPLOY_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh-keygen -lf ~/.ssh/known_hosts -E sha256 | awk '{print $2}' | grep -qxF "$EXPECTED_HOST_FINGERPRINT"
 
       - name: Upload test release
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           RELEASE: ${{ github.sha }}
         run: |
-          test -n "$DEPLOY_HOST"
-          test -n "$DEPLOY_USER"
           ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p /srv/deutsch-klub/test/crm/releases/$RELEASE"
           rsync -az --delete dist/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/deutsch-klub/test/crm/releases/$RELEASE/"
           ssh "$DEPLOY_USER@$DEPLOY_HOST" "ln -sfn /srv/deutsch-klub/test/crm/releases/$RELEASE /srv/deutsch-klub/test/crm/current"
 
       - name: Verify test deployment
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: ssh "$DEPLOY_USER@$DEPLOY_HOST" "test -f /srv/deutsch-klub/test/crm/current/index.html"
