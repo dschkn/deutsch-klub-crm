@@ -1,9 +1,25 @@
 node_modules/
 dist/
 build/
+coverage/
+.vite/
+.vercel/
+
 .env
-.env.local
+.env.*
+!.env.example
+
 .DS_Store
+*.tsbuildinfo
+*.log
+
 .idea/
 .vscode/
-*.log
+
+# Raw exports and personal data must stay outside version control.
+private-data/
+src/data/raw/
+src/data/*_import.csv
+
+# Prevent accidental nested repositories from being staged.
+**/.git/
