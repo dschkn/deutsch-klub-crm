@@ -1,0 +1,67 @@
+name: Deploy CRM Test
+
+on:
+  push:
+    branches:
+      - test-development
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deutsch-klub-crm-test-development
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout test-development
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check and build
+        run: npm run check
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Upload test release
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          RELEASE: ${{ github.sha }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p /srv/deutsch-klub/crm/releases/$RELEASE"
+          rsync -az --delete dist/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/deutsch-klub/crm/releases/$RELEASE/"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "ln -sfn /srv/deutsch-klub/crm/releases/$RELEASE /srv/deutsch-klub/crm/current"
+
+      - name: Verify test deployment
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: ssh "$DEPLOY_USER@$DEPLOY_HOST" "test -f /srv/deutsch-klub/crm/current/index.html"
