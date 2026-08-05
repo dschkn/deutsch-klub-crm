@@ -1,0 +1,70 @@
+{
+  "name": "precinct",
+  "version": "12.3.2",
+  "description": "Unleash the detectives",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "generate:types": "tsc --allowJs --declaration --emitDeclarationOnly --declarationDir . index.js",
+    "check:types": "npm run generate:types && git diff HEAD --exit-code index.d.ts",
+    "lint": "xo",
+    "fix": "xo --fix",
+    "uvu": "uvu test \".test.js\" -i fixtures",
+    "test": "npm run lint && npm run check:types && npm run uvu",
+    "test:ci": "c8 npm run uvu"
+  },
+  "bin": {
+    "precinct": "bin/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dependents/node-precinct.git"
+  },
+  "keywords": [
+    "modules",
+    "amd",
+    "commonjs",
+    "es6",
+    "sass",
+    "less",
+    "vue",
+    "detective",
+    "dependencies"
+  ],
+  "author": "Joel Kemp <joel@mrjoelkemp.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/dependents/node-precinct/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/cli.js",
+    "index.js",
+    "index.d.ts"
+  ],
+  "homepage": "https://github.com/dependents/node-precinct",
+  "dependencies": {
+    "@dependents/detective-less": "^5.0.3",
+    "commander": "^12.1.0",
+    "detective-amd": "^6.1.0",
+    "detective-cjs": "^6.1.1",
+    "detective-es6": "^5.0.2",
+    "detective-postcss": "^8.0.3",
+    "detective-sass": "^6.0.2",
+    "detective-scss": "^5.0.2",
+    "detective-stylus": "^5.0.1",
+    "detective-typescript": "^14.1.2",
+    "detective-vue2": "^2.3.0",
+    "module-definition": "^6.0.2",
+    "node-source-walk": "^7.0.2",
+    "postcss": "^8.5.14",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "c8": "^10.1.3",
+    "uvu": "^0.5.6",
+    "xo": "^0.60.0"
+  }
+}

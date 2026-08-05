@@ -1,0 +1,165 @@
+'use strict';
+
+const parser = require('@babel/parser');
+
+module.exports = class NodeSourceWalk {
+  // We use global state to stop the recursive traversal of the AST
+  #shouldStop = false;
+
+  /**
+   * @param  {Object} options - Options to configure parser
+   * @param  {Object} options.parser - An object with a parse method that returns an AST
+   */
+  constructor(options = {}) {
+    const { parser: customParser, ...restOptions } = options;
+    this.parser = customParser || parser;
+
+    this.options = {
+      plugins: [
+        'jsx',
+        'flow',
+        'asyncGenerators',
+        'classProperties',
+        'doExpressions',
+        'dynamicImport',
+        'exportDefaultFrom',
+        'exportNamespaceFrom',
+        'functionBind',
+        'functionSent',
+        'nullishCoalescingOperator',
+        'objectRestSpread',
+        [
+          'decorators', {
+            decoratorsBeforeExport: true
+          }
+        ],
+        'optionalChaining'
+      ],
+      allowHashBang: true,
+      sourceType: 'module',
+      ...restOptions
+    };
+  }
+
+  /**
+   * @param  {String} src
+   * @param  {Object} [options] - Parser options
+   * @return {Object} The AST of the given src
+   */
+  parse(src, options = this.options) {
+    // Keep around for consumers of parse that supply their own options
+    if (options.allowHashBang === undefined) {
+      return this.parser.parse(src, { ...options, allowHashBang: true });
+    }
+
+    return this.parser.parse(src, options);
+  }
+
+  /**
+   * Adapted from substack/node-detective
+   * Executes callback on a non-array AST node
+   *
+   * @param {Object|Array} node - AST node or array of nodes
+   * @param {Function} callback - Function executed for each visited node
+   */
+  traverse(node, callback) {
+    if (this.#shouldStop) return;
+
+    if (Array.isArray(node)) {
+      for (const key of node) {
+        if (this.#isObject(key)) {
+          // Mark that the node has been visited
+          key.parent = node;
+          this.traverse(key, callback);
+          if (this.#shouldStop) return;
+        }
+      }
+    } else if (this.#isObject(node)) {
+      callback(node);
+
+      for (const key of Object.keys(node)) {
+        // Avoid visited nodes
+        if (key === 'parent') continue;
+
+        const value = node[key];
+        // Only recurse into objects and arrays; skip primitives and null
+        if (value === null || typeof value !== 'object') continue;
+
+        if (!Array.isArray(value)) {
+          value.parent = node;
+        }
+
+        this.traverse(value, callback);
+        if (this.#shouldStop) return;
+      }
+    }
+  }
+
+  /**
+   * Executes the passed callback for every traversed node of the passed in src's ast
+   *
+   * @param {String|Object} src - The source code or AST to traverse
+   * @param {Function} callback - Called for every node
+   */
+  walk(src, callback) {
+    this.#shouldStop = false;
+
+    const ast = this.#isObject(src) ? src : this.parse(src);
+
+    this.traverse(ast, callback);
+  }
+
+  /**
+   * Walks upward through parent nodes, executing the callback for each ancestor
+   *
+   * @param {Object} node - The starting AST node
+   * @param {Function} callback - Called for each parent node
+   */
+  moonwalk(node, callback) {
+    this.#shouldStop = false;
+
+    if (!this.#isObject(node)) throw new Error('node must be an object');
+
+    this.#reverseTraverse(node, callback);
+  }
+
+  /**
+   * Halts further traversal of the AST
+   */
+  stopWalking() {
+    this.#shouldStop = true;
+  }
+
+  /**
+   * Traverses upward through parent nodes
+   *
+   * @param {Object} node - Current AST node
+   * @param {Function} callback - Called for each parent node
+   * @private
+   */
+  #reverseTraverse(node, callback) {
+    if (this.#shouldStop || !node.parent) return;
+
+    if (Array.isArray(node.parent)) {
+      for (const parent of node.parent) {
+        callback(parent);
+        if (this.#shouldStop) return;
+      }
+    } else {
+      callback(node.parent);
+    }
+
+    this.#reverseTraverse(node.parent, callback);
+  }
+
+  /**
+   * Determines whether a value is a non-null object
+   *
+   * @param {*} value - Value to test
+   * @return {Boolean} True if value is a non-array object
+   * @private
+   */
+  #isObject(value) {
+    return typeof value === 'object' && !Array.isArray(value) && value !== null;
+  }
+};
