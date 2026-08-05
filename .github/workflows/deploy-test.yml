@@ -56,12 +56,12 @@ jobs:
         run: |
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
-          ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p /srv/deutsch-klub/crm/releases/$RELEASE"
-          rsync -az --delete dist/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/deutsch-klub/crm/releases/$RELEASE/"
-          ssh "$DEPLOY_USER@$DEPLOY_HOST" "ln -sfn /srv/deutsch-klub/crm/releases/$RELEASE /srv/deutsch-klub/crm/current"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p /srv/deutsch-klub/test/crm/releases/$RELEASE"
+          rsync -az --delete dist/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/deutsch-klub/test/crm/releases/$RELEASE/"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "ln -sfn /srv/deutsch-klub/test/crm/releases/$RELEASE /srv/deutsch-klub/test/crm/current"
 
       - name: Verify test deployment
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-        run: ssh "$DEPLOY_USER@$DEPLOY_HOST" "test -f /srv/deutsch-klub/crm/current/index.html"
+        run: ssh "$DEPLOY_USER@$DEPLOY_HOST" "test -f /srv/deutsch-klub/test/crm/current/index.html"
