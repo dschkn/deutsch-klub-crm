@@ -45,27 +45,35 @@ type TableName =
   | 'rooms'
   | 'branches';
 
+type LoadedTable = {
+  table: TableName;
+  rows: unknown[];
+  count: number;
+};
+
+const store = DataStore.getInstance();
+
 const TABLE_MAP: Record<TableName, (items: unknown[]) => void> = {
-  students: (items) => DataStore.getInstance().importStudents(items as NormalizedStudent[]),
-  groups: (items) => DataStore.getInstance().importGroups(items as NormalizedGroup[]),
-  teachers: (items) => DataStore.getInstance().importTeachers(items as NormalizedTeacher[]),
-  users: (items) => items.forEach((item) => DataStore.getInstance().addUser(item as NormalizedUser)),
-  payments: (items) => DataStore.getInstance().importPayments(items as NormalizedPayment[]),
-  contracts: (items) => items.forEach((item) => DataStore.getInstance().addContract(item as NormalizedContract)),
-  lessons: (items) => DataStore.getInstance().importLessons(items as NormalizedLesson[]),
-  tasks: (items) => items.forEach((item) => DataStore.getInstance().addTask(item as NormalizedTask)),
-  conversations: (items) => items.forEach((item) => DataStore.getInstance().addConversation(item as NormalizedChatConversation)),
-  schedule_items: (items) => items.forEach((item) => DataStore.getInstance().addScheduleItem(item as NormalizedTeacherScheduleItem)),
-  vacations: (items) => items.forEach((item) => DataStore.getInstance().addVacation(item as NormalizedVacation)),
-  events: (items) => items.forEach((item) => DataStore.getInstance().addEvent(item as NormalizedClubEvent)),
-  event_registrations: (items) => items.forEach((item) => DataStore.getInstance().addEventRegistration(item as NormalizedEventRegistration)),
-  applications: (items) => items.forEach((item) => DataStore.getInstance().addApplication(item as NormalizedApplication)),
-  leads: (items) => items.forEach((item) => DataStore.getInstance().addLead(item as NormalizedLead)),
-  permissions: (items) => DataStore.getInstance().setPermissions(items as NormalizedPermission[]),
-  role_permissions: (items) => DataStore.getInstance().setRolePermissions(items as NormalizedRolePermission[]),
-  comments: (items) => items.forEach((item) => DataStore.getInstance().addComment(item as NormalizedComment)),
-  rooms: (items) => items.forEach((item) => DataStore.getInstance().addRoom(item as NormalizedRoom)),
-  branches: (items) => items.forEach((item) => DataStore.getInstance().addBranch(item as NormalizedBranch)),
+  students: (items) => store.importStudents(items as NormalizedStudent[]),
+  groups: (items) => store.importGroups(items as NormalizedGroup[]),
+  teachers: (items) => store.importTeachers(items as NormalizedTeacher[]),
+  users: (items) => items.forEach((item) => store.addUser(item as NormalizedUser)),
+  payments: (items) => store.importPayments(items as NormalizedPayment[]),
+  contracts: (items) => items.forEach((item) => store.addContract(item as NormalizedContract)),
+  lessons: (items) => store.importLessons(items as NormalizedLesson[]),
+  tasks: (items) => items.forEach((item) => store.addTask(item as NormalizedTask)),
+  conversations: (items) => items.forEach((item) => store.addConversation(item as NormalizedChatConversation)),
+  schedule_items: (items) => items.forEach((item) => store.addScheduleItem(item as NormalizedTeacherScheduleItem)),
+  vacations: (items) => items.forEach((item) => store.addVacation(item as NormalizedVacation)),
+  events: (items) => items.forEach((item) => store.addEvent(item as NormalizedClubEvent)),
+  event_registrations: (items) => items.forEach((item) => store.addEventRegistration(item as NormalizedEventRegistration)),
+  applications: (items) => items.forEach((item) => store.addApplication(item as NormalizedApplication)),
+  leads: (items) => items.forEach((item) => store.addLead(item as NormalizedLead)),
+  permissions: (items) => store.setPermissions(items as NormalizedPermission[]),
+  role_permissions: (items) => store.setRolePermissions(items as NormalizedRolePermission[]),
+  comments: (items) => items.forEach((item) => store.addComment(item as NormalizedComment)),
+  rooms: (items) => items.forEach((item) => store.addRoom(item as NormalizedRoom)),
+  branches: (items) => items.forEach((item) => store.addBranch(item as NormalizedBranch)),
 };
 
 const DATE_FIELDS = new Set([
@@ -100,10 +108,11 @@ function deserializeRow(obj: unknown): unknown {
 // Intentionally read-only until the live schema, Auth and RLS model are audited.
 export const supabaseSync = {
   async loadAll(): Promise<boolean> {
-    if (!supabase) return false;
+    const client = supabase;
+    if (!client) return false;
 
     try {
-      const { error: testError } = await supabase.from('students').select('id').limit(1);
+      const { error: testError } = await client.from('students').select('id').limit(1);
       if (testError) {
         console.warn('Supabase tables not available, using seed data:', testError.message);
         return false;
@@ -116,20 +125,32 @@ export const supabaseSync = {
         'role_permissions', 'comments', 'rooms', 'branches',
       ];
 
+      const loadedTables = await Promise.all(
+        tables.map(async (table): Promise<LoadedTable | null> => {
+          try {
+            const { data, error } = await client.from(table).select('*');
+            if (error || !data || data.length === 0) return null;
+
+            return {
+              table,
+              rows: data.map(deserializeRow),
+              count: data.length,
+            };
+          } catch {
+            // Skip optional tables that are not available in the current schema.
+            return null;
+          }
+        })
+      );
+
       let loadedAny = false;
 
-      for (const table of tables) {
-        try {
-          const { data, error } = await supabase.from(table).select('*');
-          if (error || !data || data.length === 0) continue;
+      for (const loaded of loadedTables) {
+        if (!loaded) continue;
 
-          const deserialized = data.map(deserializeRow);
-          TABLE_MAP[table](deserialized as unknown[]);
-          loadedAny = true;
-          console.log(`Loaded ${data.length} rows from ${table}`);
-        } catch {
-          // skip table if it doesn't exist
-        }
+        TABLE_MAP[loaded.table](loaded.rows);
+        loadedAny = true;
+        console.info(`Loaded ${loaded.count} rows from ${loaded.table}`);
       }
 
       return loadedAny;
