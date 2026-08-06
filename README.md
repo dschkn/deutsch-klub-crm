@@ -3,8 +3,15 @@
 Internal CRM prototype for students, groups, teachers, schedules, payments and
 administrative workflows.
 
-The repository currently uses synthetic demo data. Production authentication and
-the live Supabase connection are not enabled yet.
+The repository currently uses synthetic demo data with optional read-only
+Supabase hydration. Production authentication, persistent writes and audited
+RLS policies are not enabled yet.
+
+## Architecture status
+
+See [`docs/architecture-audit.md`](docs/architecture-audit.md) for the current
+working-versus-prototype map, known risks and the recommended migration path for
+the shared CRM and Teacher App database.
 
 ## Development
 
