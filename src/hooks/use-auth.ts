@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { DataStore } from '../data/store';
+import { AUTH_STORAGE_KEY, DEFAULT_USER_ID } from '../config/auth';
 import type { NormalizedUser } from '../types/normalized';
-
-const CURRENT_USER_KEY = 'crm_current_user_id';
-const DEFAULT_USER_ID = 'u1'; // Synthetic director account used by the local demo.
 
 let _cachedUser: NormalizedUser | null = null;
 let _cachedUserId: string | null = null;
@@ -15,7 +13,7 @@ function getUserFromStore(userId: string): NormalizedUser | undefined {
 
 export function useCurrentUser() {
   const [userId, setUserIdState] = useState<string>(() => {
-    return localStorage.getItem(CURRENT_USER_KEY) || DEFAULT_USER_ID;
+    return localStorage.getItem(AUTH_STORAGE_KEY) || DEFAULT_USER_ID;
   });
 
   const [user, setUser] = useState<NormalizedUser | undefined>(() => {
@@ -23,7 +21,7 @@ export function useCurrentUser() {
   });
 
   useEffect(() => {
-    const stored = localStorage.getItem(CURRENT_USER_KEY) || DEFAULT_USER_ID;
+    const stored = localStorage.getItem(AUTH_STORAGE_KEY) || DEFAULT_USER_ID;
     if (stored !== userId) {
       setUserIdState(stored);
     }
@@ -34,7 +32,7 @@ export function useCurrentUser() {
   }, [userId]);
 
   const setCurrentUser = useCallback((newUserId: string) => {
-    localStorage.setItem(CURRENT_USER_KEY, newUserId);
+    localStorage.setItem(AUTH_STORAGE_KEY, newUserId);
     setUserIdState(newUserId);
     const u = getUserFromStore(newUserId);
     setUser(u);
@@ -43,7 +41,7 @@ export function useCurrentUser() {
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(CURRENT_USER_KEY);
+    localStorage.removeItem(AUTH_STORAGE_KEY);
     setUserIdState(DEFAULT_USER_ID);
     const u = getUserFromStore(DEFAULT_USER_ID);
     setUser(u);
@@ -55,7 +53,7 @@ export function useCurrentUser() {
 }
 
 export function getCurrentUserSync(): NormalizedUser | undefined {
-  const id = _cachedUserId || localStorage.getItem(CURRENT_USER_KEY) || DEFAULT_USER_ID;
+  const id = _cachedUserId || localStorage.getItem(AUTH_STORAGE_KEY) || DEFAULT_USER_ID;
   if (_cachedUser && _cachedUserId === id) return _cachedUser;
   const u = getUserFromStore(id);
   _cachedUser = u || null;
