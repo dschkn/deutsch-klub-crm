@@ -65,7 +65,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 z-40 h-screen border-r border-sidebar-border bg-sidebar transition-all duration-300',
+        'fixed left-0 top-0 z-40 h-screen border-r border-sidebar-border bg-sidebar transition-[width] duration-300 will-change-[width]',
         collapsed ? 'w-16' : 'w-60'
       )}
     >
@@ -112,7 +112,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
               key={item.name}
               to={item.href}
               className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150',
                 isActive
                   ? 'bg-sidebar-accent/15 text-sidebar-accent'
                   : 'text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-border/60'
@@ -165,7 +165,7 @@ export function Header({ sidebarCollapsed }: HeaderProps) {
   return (
     <header
       className={cn(
-        'fixed top-0 right-0 z-30 flex h-16 items-center justify-between border-b border-header-border bg-header/95 backdrop-blur-sm px-6 transition-all duration-300',
+        'fixed top-0 right-0 z-30 flex h-16 items-center justify-between border-b border-header-border bg-header/95 backdrop-blur-sm px-6 transition-[left] duration-300 will-change-[left]',
         sidebarCollapsed ? 'left-16' : 'left-60'
       )}
     >
@@ -178,7 +178,7 @@ export function Header({ sidebarCollapsed }: HeaderProps) {
             onChange={(e) => handleQueryChange(e.target.value)}
             onFocus={() => { if (results.length > 0) handleQueryChange(query); }}
             placeholder="Поиск клиентов, групп, преподавателей..."
-            className="h-9 w-80 rounded-lg border border-header-border bg-muted/50 pl-9 pr-4 py-2 text-sm placeholder:text-header-muted focus:border-primary focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+            className="h-9 w-80 rounded-lg border border-header-border bg-muted/50 pl-9 pr-4 py-2 text-sm placeholder:text-header-muted focus:border-primary focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 transition-[border-color,background-color,box-shadow]"
           />
           {isOpen && (
             <div className="absolute top-full left-0 mt-1 w-96 bg-popover border border-border rounded-lg shadow-lg z-50 max-h-80 overflow-y-auto">
@@ -262,7 +262,7 @@ export default function Layout({ children }: LayoutProps) {
       <Header sidebarCollapsed={sidebarCollapsed} />
       <main
         className={cn(
-          'pt-16 transition-all duration-300',
+          'pt-16 transition-[margin-left] duration-300 will-change-[margin-left]',
           sidebarCollapsed ? 'ml-16' : 'ml-60'
         )}
       >
