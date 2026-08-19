@@ -43,8 +43,8 @@ export const STATUS_MAP: Record<
   unpaid:             { bg: '#F5F5DC', border: '#E0E0C0', text: '#5D4037', label: 'Не оплачено' },
   confirmed_paid:     { bg: '#C8E6C9', border: '#A5D6A7', text: '#1B5E20', label: 'Подтв. и оплачено' },
   needs_attention:    { bg: '#81C784', border: '#66BB6A', text: '#1B5E20', label: 'Требует внимания' },
-  recruiting:         { bg: '#FFFFFF', border: '#E0E0E0', text: '#C62828', label: 'В наборе', textClass: 'text-red-600' },
-  cancelled:          { bg: '#FAFAFA', border: '#E0E0E0', text: '#9E9E9E', label: 'Отменено', textClass: 'text-red-500 line-through' },
+  recruiting:         { bg: '#FFFFFF', border: '#FCA5A5', text: '#DC2626', label: 'Группа в наборе', textClass: 'text-red-600' },
+  cancelled:          { bg: '#FFFFFF', border: '#FCA5A5', text: '#DC2626', label: 'Не стартует / перенос', textClass: 'text-red-600 line-through' },
   unavailable:        { bg: '#F5F5F5', border: '#E0E0E0', text: '#9E9E9E', label: 'Недоступен' },
 };
 
@@ -69,6 +69,8 @@ const OFFLINE_CLUB_COLORS: CardColors = {
 
 const STATUS_CARD_COLORS: Partial<Record<ScheduleStatus, CardColors>> = {
   group_start:       { bg: '#FCE1DB', border: '#E48A78', text: '#7F1D1D', badge: '#DD7E6B' },
+  recruiting:        { bg: '#FFFFFF', border: '#FCA5A5', text: '#DC2626', badge: '#EF4444' },
+  cancelled:         { bg: '#FFFFFF', border: '#FCA5A5', text: '#DC2626', badge: '#EF4444' },
   needs_replacement: { bg: '#FFF4CC', border: '#F4CF65', text: '#7C4A03', badge: '#EAB308' },
   replacement:       { bg: '#F3DCE8', border: '#D5A6BD', text: '#701A4B', badge: '#C06A96' },
   last_lesson:       { bg: '#FFF200', border: '#D6B900', text: '#4A3B00', badge: '#D6B900' },

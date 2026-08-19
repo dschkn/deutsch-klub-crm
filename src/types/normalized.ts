@@ -164,6 +164,9 @@ export interface NormalizedTeacherScheduleItem {
   studentName?: string;
   capacity?: number;
   currentStudents?: number;
+  paymentType?: 'single' | 'package';
+  packageSize?: number;
+  completedCount?: number;
 }
 
 export interface NormalizedRecurrenceRule {

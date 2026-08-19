@@ -6,7 +6,6 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '../components/ui/dialog';
-import { Badge } from '../components/ui/badge';
 import {
   ChevronLeft, ChevronRight, StickyNote, Plus, Trash2, X,
   Edit, Move, MessageSquare, RotateCcw, CheckCircle,
@@ -23,7 +22,7 @@ import { realGroups } from '../data/realGroups';
 import { DataStore } from '../data/store';
 import { TeacherScheduleItem, Teacher, Group, ScheduleStatus, CellComment, TeacherComment, RecurrenceRule } from '../types';
 import { NormalizedTeacherScheduleItem } from '../types/normalized';
-import GroupInfoDialog from '../components/group/GroupInfoDialog';
+import ScheduleLessonDialog from '../components/schedule/ScheduleLessonDialog';
 import CreateGroupDialog from '../components/group/CreateGroupDialog';
 import DropConfirmDialog from '../components/schedule/DropConfirmDialog';
 import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parse, getDay, differenceInMinutes } from 'date-fns';
@@ -31,7 +30,7 @@ import { ru } from 'date-fns/locale';
 import {
   dayNames, LESSON_TYPE_LABELS, getScheduleCardColors,
   START_HOUR, END_HOUR, SLOT_MINUTES, SLOT_HEIGHT, DAY_HEADER_HEIGHT,
-  STATUS_MAP, languageLabels,
+  STATUS_MAP,
 } from './teacherSchedule/constants';
 import {
   getScheduleForDay, getWeekKey,
@@ -174,7 +173,6 @@ export default function TeacherSchedule() {
   const [teacherCommentText, setTeacherCommentText] = useState('');
   const [teacherCommentTarget, setTeacherCommentTarget] = useState<string | null>(null);
   const [lessonInfoItem, setLessonInfoItem] = useState<TeacherScheduleItem | null>(null);
-  const [groupInfoGroupId, setGroupInfoGroupId] = useState<string | null>(null);
   const [dropConfirmOpen, setDropConfirmOpen] = useState(false);
 
   // Individual lessons
@@ -1173,6 +1171,9 @@ export default function TeacherSchedule() {
         teacherName: si.teacherName,
         capacity: si.capacity,
         currentStudents: si.currentStudents,
+        paymentType: si.paymentType,
+        packageSize: si.packageSize,
+        completedCount: si.completedCount,
       };
     });
     const indivItems = individualLessons.filter(l =>
@@ -1811,16 +1812,16 @@ export default function TeacherSchedule() {
                           const isPast = day < new Date(new Date().toDateString()) && !isSameDay(day, new Date());
                           const isUpcoming = !isPast && !active && !isCancelled && isSameDay(day, new Date());
 
-                          const bgColor = isCancelled ? '#F5F5F5' : typeColor.bg;
-                          const borderColor = active ? '#EF4444' : isCancelled ? '#E0E0E0' : typeColor.border;
-                          const textColor = isCancelled ? '#9E9E9E' : typeColor.text;
+                          const bgColor = typeColor.bg;
+                          const borderColor = active ? '#EF4444' : typeColor.border;
+                          const textColor = typeColor.text;
 
                           return (
                             <div key={item.id}>
                               <div
                                 className={`absolute left-0.5 right-0.5 rounded border overflow-hidden text-[11px] leading-snug cursor-pointer transition-all z-[5] ${
                                   active ? 'ring-1 ring-teal-400 bg-opacity-90' : ''
-                                } ${isCancelled ? 'opacity-55' : 'hover:shadow-md hover:-translate-y-0.5 hover:z-10'}`}
+                                } hover:shadow-md hover:-translate-y-0.5 hover:z-10`}
                                 style={{
                                   top: `${top}px`,
                                   height: `${Math.max(height, 26)}px`,
@@ -1834,20 +1835,9 @@ export default function TeacherSchedule() {
                                 onDragStart={(e) => handleDragStart(e, item)}
                                 onDragEnd={handleDragEnd}
                                 onContextMenu={(e) => handleContextMenu(e, item)}
-                                onClick={() => {
-                                  if (item.groupId || item.type === 'lesson') {
-                                    setGroupInfoGroupId(item.groupId || item.group?.id || null);
-                                  } else {
-                                    setLessonInfoItem(item);
-                                  }
-                                }}
+                                onClick={() => setLessonInfoItem(item)}
                               >
                                 <div className={`p-2 space-y-1 pointer-events-none ${isCancelled ? 'line-through relative' : ''}`}>
-                                  {isCancelled && (
-                                    <div className="absolute inset-0 flex items-center pointer-events-none" style={{ zIndex: 1 }}>
-                                      <div className="w-full border-t border-red-500" style={{ transform: 'rotate(-8deg)' }} />
-                                    </div>
-                                  )}
                                   {/* Top row: time + status badges */}
                                   <div className="flex items-center gap-1 flex-wrap">
                                     <p className="font-bold text-[10px] shrink-0 tracking-tight">
@@ -1961,174 +1951,10 @@ export default function TeacherSchedule() {
         </CardContent>
       </Card>
 
-      {/* Group Info Dialog */}
-      <GroupInfoDialog
-        groupId={groupInfoGroupId}
-        open={!!groupInfoGroupId}
-        onOpenChange={(o) => { if (!o) setGroupInfoGroupId(null); }}
+      <ScheduleLessonDialog
+        item={lessonInfoItem}
+        onOpenChange={(open) => { if (!open) setLessonInfoItem(null); }}
       />
-
-      {/* Lesson Info Modal */}
-      {lessonInfoItem && (
-        <Dialog open={!!lessonInfoItem} onOpenChange={(o) => { if (!o) setLessonInfoItem(null); }}>
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle className="text-base">
-                {lessonInfoItem.group?.name || (lessonInfoItem.type === 'individual' ? 'Индивидуальное занятие' : lessonInfoItem.type === 'testing' ? 'Тестирование' : lessonInfoItem.type === 'trial' ? 'Пробный урок' : 'Занятие')}
-              </DialogTitle>
-              <DialogDescription className="sr-only">Информация о занятии</DialogDescription>
-            </DialogHeader>
-
-            {lessonInfoItem.group && (
-              <div className="space-y-5">
-                {/* Основная информация */}
-                <div className="grid grid-cols-2 gap-x-8 gap-y-2.5 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Язык</span>
-                    <span className="font-medium">{languageLabels[lessonInfoItem.group.language] || lessonInfoItem.group.language}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Уровень</span>
-                    <span className="font-medium">{lessonInfoItem.group.level}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Преподаватель</span>
-                    <span className="font-medium">{lessonInfoItem.group.teacher.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Статус</span>
-                    <Badge variant="outline" className="text-[11px] h-5 px-2">
-                      {lessonInfoItem.group.status === 'active' ? 'Активна' : lessonInfoItem.group.status === 'completed' ? 'Завершена' : 'Запланирована'}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Расписание</span>
-                    <span className="font-medium">{lessonInfoItem.group.schedule.map(s => dayNames[s.dayOfWeek - 1] || '').filter(Boolean).join(', ')}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Время</span>
-                    <span className="font-medium">{lessonInfoItem.startTime} – {lessonInfoItem.endTime}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Аудитория</span>
-                    <span className="font-medium">{formatRoomKey(lessonInfoItem.classroom || lessonInfoItem.zoomRoom) || '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Студентов</span>
-                    <span className="font-medium">{lessonInfoItem.group.students?.length || 0} / {lessonInfoItem.group.maxStudents}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Дата начала</span>
-                    <span className="font-medium">{format(lessonInfoItem.group.startDate, 'dd.MM.yyyy')}</span>
-                  </div>
-                  {lessonInfoItem.group.endDate && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground min-w-[120px]">Дата окончания</span>
-                      <span className="font-medium">{format(lessonInfoItem.group.endDate, 'dd.MM.yyyy')}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Студенты */}
-                {lessonInfoItem.group.students && lessonInfoItem.group.students.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-foreground mb-2">Студенты</h4>
-                    <div className="border rounded-lg divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                      {lessonInfoItem.group.students.map(s => (
-                        <div key={s.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted">
-                          <span className="text-muted-foreground/70 text-lg leading-none">•</span>
-                          <button
-                            className="text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline text-left"
-                            onClick={() => {
-                              localStorage.setItem('open_student_id', s.id);
-                              window.open('/students', '_blank');
-                            }}
-                          >
-                            {s.name}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {lessonInfoItem.type === 'individual' && (
-              <div className="space-y-2.5 text-sm">
-                {lessonInfoItem.studentName && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Ученик</span>
-                    <span className="font-medium">{lessonInfoItem.studentName}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground min-w-[120px]">Дата</span>
-                  <span className="font-medium">{format(lessonInfoItem.date, 'dd.MM.yyyy')}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground min-w-[120px]">Время</span>
-                  <span className="font-medium">{lessonInfoItem.startTime} – {lessonInfoItem.endTime}</span>
-                </div>
-                {lessonInfoItem.classroom && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Аудитория</span>
-                    <span className="font-medium">{formatRoomKey(lessonInfoItem.classroom)}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground min-w-[120px]">Формат</span>
-                  <span className="font-medium">{lessonInfoItem.format === 'online' ? 'Online' : 'Офлайн'}</span>
-                </div>
-                {lessonInfoItem.paymentType === 'package' && lessonInfoItem.packageSize && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Абонемент</span>
-                    <span className="font-medium">{lessonInfoItem.completedCount ?? 0} / {lessonInfoItem.packageSize}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {(lessonInfoItem.type === 'testing' || lessonInfoItem.type === 'trial') && (
-              <div className="space-y-2.5 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground min-w-[120px]">Тип</span>
-                  <span className="font-medium">{lessonInfoItem.type === 'testing' ? 'Тестирование' : 'Пробный урок'}</span>
-                </div>
-                {lessonInfoItem.studentName && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Ученик</span>
-                    <span className="font-medium">{lessonInfoItem.studentName}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground min-w-[120px]">Дата</span>
-                  <span className="font-medium">{format(lessonInfoItem.date, 'dd.MM.yyyy')}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground min-w-[120px]">Время</span>
-                  <span className="font-medium">{lessonInfoItem.startTime} – {lessonInfoItem.endTime}</span>
-                </div>
-                {(lessonInfoItem.classroom || lessonInfoItem.zoomRoom) && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground min-w-[120px]">Аудитория</span>
-                    <span className="font-medium">{formatRoomKey(lessonInfoItem.classroom || lessonInfoItem.zoomRoom)}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <DialogFooter className="mt-2">
-              {lessonInfoItem.group && (
-                <Button size="sm" className="h-8 text-xs" onClick={() => { window.open('/groups', '_blank'); setLessonInfoItem(null); }}>
-                  Открыть группу
-                </Button>
-              )}
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setLessonInfoItem(null)}>Закрыть</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
 
       {/* Context Menu */}
       {contextMenuPos && contextItem && (
@@ -2440,7 +2266,16 @@ export default function TeacherSchedule() {
           </button>
           {Object.entries(STATUS_MAP).map(([key, s]) => (
             <div key={key} className="flex items-center gap-1">
-              <div className="h-2.5 w-2.5 rounded-sm border" style={{ backgroundColor: s.bg, borderColor: s.border }} />
+              {key === 'recruiting' || key === 'cancelled' ? (
+                <div
+                  className={`flex h-3.5 w-5 items-center justify-center rounded-sm border bg-white text-[8px] font-bold ${key === 'cancelled' ? 'line-through' : ''}`}
+                  style={{ borderColor: s.border, color: s.text }}
+                >
+                  Аа
+                </div>
+              ) : (
+                <div className="h-2.5 w-2.5 rounded-sm border" style={{ backgroundColor: s.bg, borderColor: s.border }} />
+              )}
               <span className="text-[9px] text-muted-foreground">{s.label}</span>
             </div>
           ))}

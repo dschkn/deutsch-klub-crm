@@ -65,7 +65,9 @@ export function getScheduleForDay(teacher: Teacher, date: Date): TeacherSchedule
       teacherName: si.teacherName,
       capacity: si.capacity,
       currentStudents: si.currentStudents,
-      paymentType: si.studentId ? 'single' as const : undefined,
+      paymentType: si.paymentType,
+      packageSize: si.packageSize,
+      completedCount: si.completedCount,
     };
   });
 }
