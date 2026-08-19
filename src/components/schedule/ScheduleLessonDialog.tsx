@@ -289,8 +289,8 @@ function calculateCourseHours(occurrences: LessonOccurrence[]): number {
 
 function DetailRow({ label, value, accent = false }: { label: string; value: React.ReactNode; accent?: boolean }) {
   return (
-    <div className="grid grid-cols-[128px_minmax(0,1fr)] gap-4 py-1.5 text-sm">
-      <dt className="text-right font-medium text-muted-foreground">{label}</dt>
+    <div className="grid grid-cols-[116px_minmax(0,1fr)] gap-3 py-0.5 text-[13px] leading-5">
+      <dt className="text-right font-semibold text-muted-foreground">{label}</dt>
       <dd className={accent ? 'font-semibold text-sky-600' : 'text-foreground'}>{value || '—'}</dd>
     </div>
   );
@@ -629,7 +629,7 @@ export default function ScheduleLessonDialog({ item, onOpenChange, onItemUpdated
   return (
     <Dialog open={Boolean(item)} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[94vh] max-w-6xl overflow-y-auto p-0">
-        <DialogHeader className="border-b border-border/70 bg-muted/20 px-6 py-5 text-left">
+        <DialogHeader className="border-b border-border/70 bg-muted/20 px-5 py-4 text-left">
           <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
             <div className="min-w-0">
               <DialogTitle className="text-lg leading-snug md:text-xl">{screen === 'edit' ? (groupLesson ? 'Редактирование группы' : 'Редактирование занятия') : title}</DialogTitle>
@@ -681,13 +681,13 @@ export default function ScheduleLessonDialog({ item, onOpenChange, onItemUpdated
             </div>
           </div>
         ) : (
-          <div className="space-y-8 px-6 py-6">
+          <div className="space-y-5 px-5 py-4">
             <div><Button size="sm" onClick={handleStartEdit}><Edit3 className="mr-2 h-4 w-4" />Редактировать</Button></div>
 
-            <section className="grid gap-7 lg:grid-cols-[minmax(0,0.9fr)_minmax(360px,1.15fr)]">
+            <section className="grid gap-6 lg:grid-cols-[minmax(0,0.78fr)_minmax(380px,1.22fr)]">
               <div className="min-w-0">
-                <h3 className="mb-3 text-sm font-semibold">Данные {groupLesson ? 'группы' : 'занятия'}</h3>
-                <dl className="rounded-xl border border-border/70 bg-background px-4 py-3">
+                <h3 className="mb-2 text-sm font-semibold">Данные {groupLesson ? 'группы' : 'занятия'}</h3>
+                <dl className="py-1">
                   {groupLesson && <DetailRow label="Номер группы" value={courseCode || activeItem.groupId || '—'} />}
                   <DetailRow label="Язык" value={language ? languageLabels[language] || language : '—'} />
                   <DetailRow label="Уровень" value={level || '—'} />
@@ -709,9 +709,9 @@ export default function ScheduleLessonDialog({ item, onOpenChange, onItemUpdated
               </div>
 
               <div className="min-w-0">
-                <div className="mb-3 flex items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><MessageSquare className="h-4 w-4" />Лента комментариев</h3><span className="text-xs text-muted-foreground">{comments.length}</span></div>
+                <div className="mb-2 flex items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><MessageSquare className="h-4 w-4" />Лента комментариев</h3><span className="text-xs text-muted-foreground">{comments.length}</span></div>
                 <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
-                  <div className="h-[300px] overflow-y-auto">
+                  <div className="h-[220px] overflow-y-auto">
                     {comments.length ? comments.map(comment => {
                       const name = authorName(comment.authorId);
                       const selected = selectedCommentId === comment.id;
@@ -725,7 +725,7 @@ export default function ScheduleLessonDialog({ item, onOpenChange, onItemUpdated
                   </div>
                   <div className="border-t border-border/70 bg-muted/20 p-3">
                     {selectedCommentId && <p className="mb-2 text-xs font-medium text-teal-700">Редактирование выбранного комментария</p>}
-                    <Textarea value={commentText} onChange={event => setCommentText(event.target.value)} placeholder="Добавить комментарий для администраторов…" className="min-h-[88px] resize-y bg-background" />
+                    <Textarea value={commentText} onChange={event => setCommentText(event.target.value)} placeholder="Добавить комментарий для администраторов…" className="min-h-[68px] resize-y bg-background" />
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                       <div>{selectedCommentId && <Button variant="destructive" size="sm" onClick={handleDeleteComment}><Trash2 className="mr-2 h-4 w-4" />Удалить</Button>}</div>
                       <div className="flex gap-2">{selectedCommentId && <Button variant="ghost" size="sm" onClick={() => { setSelectedCommentId(null); setCommentText(''); }}>Отменить</Button>}<Button size="sm" onClick={handleSaveComment} disabled={!commentText.trim()}>{selectedCommentId ? <Save className="mr-2 h-4 w-4" /> : <Send className="mr-2 h-4 w-4" />}{selectedCommentId ? 'Сохранить' : 'Отправить'}</Button></div>
