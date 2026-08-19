@@ -1,352 +1,312 @@
-import { useState } from 'react';
-import { Card } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Badge } from '../components/ui/badge';
-import { Avatar, AvatarFallback } from '../components/ui/avatar';
-import { ScrollArea } from '../components/ui/scroll-area';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
-import { Label } from '../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Textarea } from '../components/ui/textarea';
-import { Separator } from '../components/ui/separator';
-import {
-  Plus,
-  Calendar,
-  User,
-  Clock,
-  CheckCircle2,
-} from 'lucide-react';
-import { getAllTasks } from '../data/selectors';
-import { Task } from '../types';
-import { format, isBefore, isToday, formatDistanceToNow } from 'date-fns';
+import { type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { addDays, format, isBefore, isSameDay, parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
+import {
+  CalendarDays,
+  Check,
+  Clock3,
+  Flame,
+  GripVertical,
+  ListChecks,
+  MessageSquare,
+  Plus,
+  Search,
+  Send,
+  Tag,
+  Trash2,
+  UserRound,
+} from 'lucide-react';
+import { Avatar, AvatarFallback } from '../components/ui/avatar';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Checkbox } from '../components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { ScrollArea } from '../components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Separator } from '../components/ui/separator';
+import { Textarea } from '../components/ui/textarea';
+import {
+  demoAdministrators,
+  demoAdminTasks,
+  type DemoBoardTask,
+  type DemoTaskPriority,
+  type DemoTaskStatus,
+  getNextShift,
+  getShift,
+} from '../data/demoAdministrators';
 import { cn } from '../lib/utils';
 
-const priorityConfig: Record<Task['priority'], { label: string; color: string; dotColor: string }> = {
-  low: { label: 'Низкий', color: 'text-slate-600', dotColor: 'bg-slate-400' },
-  medium: { label: 'Средний', color: 'text-amber-600', dotColor: 'bg-amber-500' },
-  high: { label: 'Высокий', color: 'text-orange-600', dotColor: 'bg-orange-500' },
-  urgent: { label: 'Срочный', color: 'text-red-600', dotColor: 'bg-red-500' },
+const STORAGE_KEY = 'dk-admin-kanban-v1';
+const DEMO_TODAY = parseISO('2026-08-19');
+const DEMO_TODAY_KEY = '2026-08-19';
+
+const priorityConfig: Record<DemoTaskPriority, { label: string; dot: string; badge: string }> = {
+  low: { label: 'Низкий', dot: 'bg-slate-400', badge: 'border-slate-200 bg-slate-50 text-slate-700' },
+  medium: { label: 'Обычный', dot: 'bg-amber-400', badge: 'border-amber-200 bg-amber-50 text-amber-800' },
+  high: { label: 'Важный', dot: 'bg-orange-500', badge: 'border-orange-200 bg-orange-50 text-orange-800' },
+  urgent: { label: 'Срочный', dot: 'bg-red-500', badge: 'border-red-200 bg-red-50 text-red-700' },
 };
 
-const managers = [
-  { id: 'unassigned', name: 'Неразобранное' },
-  ...Array.from({ length: 7 }, (_, index) => ({
-    id: `manager-${index + 1}`,
-    name: `Менеджер ${String(index + 1).padStart(2, '0')}`,
-  })),
-];
+const statusLabels: Record<DemoTaskStatus, string> = {
+  new: 'Новая',
+  in_progress: 'В работе',
+  waiting: 'Ожидание',
+  completed: 'Завершена',
+};
 
-function getDueDateStatus(dueDate: Date): { text: string; color: string } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(dueDate);
-  due.setHours(0, 0, 0, 0);
-
-  if (isBefore(due, today)) {
-    return { text: 'Просрочено', color: 'text-red-600' };
-  } else if (isToday(due)) {
-    return { text: 'Сегодня', color: 'text-amber-600' };
-  } else if (isBefore(due, new Date(today.getTime() + 3 * 24 * 60 * 60 * 1000))) {
-    return { text: format(due, 'EEE', { locale: ru }), color: 'text-blue-600' };
-  } else {
-    return { text: format(due, 'd MMM', { locale: ru }), color: 'text-muted-foreground' };
+function loadTasks(): DemoBoardTask[] {
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (!saved) return demoAdminTasks;
+    const parsed: unknown = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed as DemoBoardTask[] : demoAdminTasks;
+  } catch {
+    return demoAdminTasks;
   }
 }
 
-// Распределяем задачи по менеджерам
-function assignTasksToManagers(tasks: Task[]): Record<string, Task[]> {
-  const result: Record<string, Task[]> = {};
-  managers.forEach(m => {
-    result[m.id] = [];
-  });
+function dueDateView(dateKey: string) {
+  const date = parseISO(dateKey);
+  if (isBefore(date, DEMO_TODAY)) return { label: 'Просрочено', className: 'text-red-600' };
+  if (isSameDay(date, DEMO_TODAY)) return { label: 'Сегодня', className: 'text-red-600' };
+  if (isBefore(date, addDays(DEMO_TODAY, 3))) return { label: format(date, 'EEEE', { locale: ru }), className: 'text-amber-700' };
+  return { label: format(date, 'd MMM', { locale: ru }), className: 'text-muted-foreground' };
+}
 
-  tasks.forEach((task, idx) => {
-    if (task.status === 'completed') return;
-    const managerIds = managers.map(m => m.id).slice(1);
-    const managerId = managerIds[idx % managerIds.length];
-    result[managerId]?.push(task);
-  });
-
-  // Неразобранное - все новые задачи
-  result['unassigned'] = tasks.filter(t => t.status === 'new');
-
-  return result;
+function shiftLabel(adminId: string) {
+  const shift = getShift(adminId, DEMO_TODAY_KEY);
+  if (shift) return `Сегодня · ${shift.segments.join(', ').replace(/-/g, '–')}`;
+  const nextShift = getNextShift(adminId, DEMO_TODAY_KEY);
+  return nextShift ? `Следующая смена · ${format(parseISO(nextShift.date), 'd MMM', { locale: ru })}` : 'Смен пока нет';
 }
 
 export default function Tasks() {
-  const [tasks, setTasks] = useState<Task[]>(() => getAllTasks());
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [isAdding, setIsAdding] = useState(false);
+  const [tasks, setTasks] = useState<DemoBoardTask[]>(loadTasks);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [createFor, setCreateFor] = useState<string | null | undefined>(undefined);
+  const [query, setQuery] = useState('');
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+  const draggedRef = useRef(false);
+  const [newTask, setNewTask] = useState({ title: '', description: '', dueDate: '2026-08-21', priority: 'medium' as DemoTaskPriority, assigneeId: 'unassigned' });
+  const [newSubtask, setNewSubtask] = useState('');
+  const [newComment, setNewComment] = useState('');
 
-  const tasksByManager = assignTasksToManagers(tasks);
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  }, [tasks]);
 
-  const handleDragStart = (e: React.DragEvent, taskId: string) => {
-    e.dataTransfer.setData('taskId', taskId);
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleTasks = useMemo(() => tasks.filter((task) => {
+    if (task.status === 'completed') return false;
+    if (!normalizedQuery) return true;
+    return `${task.title} ${task.description} ${task.tags.join(' ')}`.toLowerCase().includes(normalizedQuery);
+  }), [normalizedQuery, tasks]);
+
+  const tasksFor = (assigneeId: string | null) => visibleTasks
+    .filter((task) => task.assigneeId === assigneeId)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+  const updateTask = (taskId: string, patch: Partial<DemoBoardTask>) => {
+    setTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...patch } : task));
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const taskId = e.dataTransfer.getData('taskId');
-    if (taskId) {
-      setTasks(prev => prev.map(t =>
-        t.id === taskId ? { ...t, status: 'in_progress' } : t
-      ));
-    }
+  const handleDragStart = (event: DragEvent, taskId: string) => {
+    draggedRef.current = true;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', taskId);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
+  const handleDrop = (event: DragEvent, assigneeId: string | null) => {
+    event.preventDefault();
+    const taskId = event.dataTransfer.getData('text/plain');
+    if (taskId) updateTask(taskId, { assigneeId, status: assigneeId ? 'in_progress' : 'new' });
+    setDragOverColumn(null);
+    window.setTimeout(() => { draggedRef.current = false; }, 0);
   };
 
-  const handleStatusChange = (taskId: string, newStatus: Task['status']) => {
-    setTasks(prev => prev.map(t =>
-      t.id === taskId ? { ...t, status: newStatus } : t
-    ));
-    if (selectedTask?.id === taskId) {
-      setSelectedTask(prev => prev ? { ...prev, status: newStatus } : null);
-    }
+  const openCreate = (assigneeId: string | null) => {
+    setNewTask({ title: '', description: '', dueDate: '2026-08-21', priority: 'medium', assigneeId: assigneeId ?? 'unassigned' });
+    setCreateFor(assigneeId);
   };
+
+  const createTask = () => {
+    if (!newTask.title.trim()) return;
+    const task: DemoBoardTask = {
+      id: `adm-task-${Date.now()}`,
+      title: newTask.title.trim(),
+      description: newTask.description.trim(),
+      assigneeId: newTask.assigneeId === 'unassigned' ? null : newTask.assigneeId,
+      dueDate: newTask.dueDate,
+      priority: newTask.priority,
+      status: newTask.assigneeId === 'unassigned' ? 'new' : 'in_progress',
+      tags: [],
+      subtasks: [],
+      comments: [],
+      createdAt: new Date().toISOString(),
+    };
+    setTasks((current) => [task, ...current]);
+    setCreateFor(undefined);
+  };
+
+  const addSubtask = () => {
+    if (!selectedTask || !newSubtask.trim()) return;
+    updateTask(selectedTask.id, { subtasks: [...selectedTask.subtasks, { id: `sub-${Date.now()}`, title: newSubtask.trim(), completed: false }] });
+    setNewSubtask('');
+  };
+
+  const addComment = () => {
+    if (!selectedTask || !newComment.trim()) return;
+    updateTask(selectedTask.id, { comments: [...selectedTask.comments, { id: `comment-${Date.now()}`, author: 'Демо-директор', text: newComment.trim(), createdAt: new Date().toISOString() }] });
+    setNewComment('');
+  };
+
+  const columns = [{ id: 'unassigned', name: 'Неразобранное', assigneeId: null as string | null }, ...demoAdministrators.map((admin) => ({ id: admin.id, name: admin.shortName, assigneeId: admin.id }))];
+  const completedCount = tasks.filter((task) => task.status === 'completed').length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Задачи</h1>
-          <p className="text-muted-foreground mt-0.5">Управление задачами команды</p>
+          <h1 className="text-2xl font-bold tracking-tight">Задачи администраторов</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Все сотрудники остаются на доске — задачу можно поставить и на будущую смену.</p>
         </div>
-        <Button onClick={() => setIsAdding(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Новая задача
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[240px] flex-1 xl:w-[300px] xl:flex-none">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по задачам…" className="h-9 pl-9" />
+          </div>
+          <Badge variant="outline" className="h-9 px-3 font-normal">Завершено: {completedCount}</Badge>
+          <Button className="h-9 gap-2" onClick={() => openCreate(null)}><Plus className="h-4 w-4" />Новая задача</Button>
+        </div>
       </div>
 
-      {/* Kanban by Managers */}
-      <div className="flex gap-4 overflow-x-auto pb-4">
-        {managers.map((manager) => (
-          <div
-            key={manager.id}
-            className="min-w-[280px] w-[280px] flex-shrink-0"
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-          >
-            <div className={cn(
-              'flex items-center justify-between rounded-lg px-3 py-2 mb-3',
-              manager.id === 'unassigned' ? 'bg-amber-50' : 'bg-muted'
-            )}>
-              <div className="flex items-center gap-2">
-                {manager.id !== 'unassigned' && (
-                  <Avatar className="h-6 w-6">
-                    <AvatarFallback className="text-[10px]">
-                      {manager.name.split(' ').map(n => n[0]).join('')}
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-                <span className="font-medium text-sm text-foreground">{manager.name}</span>
-              </div>
-              <Badge variant="outline" className="text-xs">
-                {tasksByManager[manager.id]?.length || 0}
-              </Badge>
-            </div>
+      <div className="-mx-1 overflow-x-auto px-1 pb-3">
+        <div className="flex min-w-max items-start gap-3">
+          {columns.map((column) => {
+            const admin = demoAdministrators.find((item) => item.id === column.assigneeId);
+            const columnTasks = tasksFor(column.assigneeId);
+            const isDragTarget = dragOverColumn === column.id;
+            return (
+              <section
+                key={column.id}
+                className={cn('w-[286px] flex-none rounded-xl border p-2 transition-all', admin?.columnTone ?? 'bg-amber-50/80', isDragTarget && 'border-primary ring-2 ring-primary/20')}
+                onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverColumn(column.id); }}
+                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverColumn(null); }}
+                onDrop={(event) => handleDrop(event, column.assigneeId)}
+              >
+                <div className="mb-2 px-1 py-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {admin ? <Avatar className="h-8 w-8"><AvatarFallback className={cn('text-[10px] font-semibold text-white', admin.accent)}>{admin.initials}</AvatarFallback></Avatar> : <div className="flex h-8 w-8 items-center justify-center rounded-full border border-dashed bg-white"><UserRound className="h-4 w-4 text-muted-foreground" /></div>}
+                      <div className="min-w-0"><h2 className="truncate text-sm font-semibold">{column.name}</h2><p className="truncate text-[10px] text-muted-foreground">{admin ? shiftLabel(admin.id) : 'Без исполнителя'}</p></div>
+                    </div>
+                    <Badge variant="outline" className="bg-white/70 text-xs">{columnTasks.length}</Badge>
+                  </div>
+                </div>
 
-            <ScrollArea className="h-[calc(100vh-16rem)]">
-              <div className="space-y-2 pr-2">
-                {tasksByManager[manager.id]?.map((task) => (
-                  <Card
-                    key={task.id}
-                    className="cursor-pointer transition-all hover:shadow-md bg-white"
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, task.id)}
-                    onClick={() => setSelectedTask(task)}
-                  >
-                    <div className="p-3">
-                      <div className="flex items-start gap-2">
-                        <div className={cn('mt-1 h-2 w-2 rounded-full flex-shrink-0', priorityConfig[task.priority].dotColor)} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{task.title}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{task.description}</p>
-
-                          <div className="flex items-center gap-2 mt-2">
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Calendar className="h-3 w-3" />
-                              <span className={getDueDateStatus(task.dueDate).color}>
-                                {getDueDateStatus(task.dueDate).text}
-                              </span>
+                <ScrollArea className="h-[calc(100vh-15rem)] min-h-[500px]">
+                  <div className="space-y-2 pr-2">
+                    {columnTasks.map((task) => {
+                      const due = dueDateView(task.dueDate);
+                      const completedSubtasks = task.subtasks.filter((item) => item.completed).length;
+                      return (
+                        <Card
+                          key={task.id}
+                          draggable
+                          onDragStart={(event) => handleDragStart(event, task.id)}
+                          onDragEnd={() => { setDragOverColumn(null); window.setTimeout(() => { draggedRef.current = false; }, 0); }}
+                          onClick={() => { if (!draggedRef.current) setSelectedTaskId(task.id); }}
+                          className="group cursor-grab border-white/80 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md active:cursor-grabbing"
+                        >
+                          <div className="p-3">
+                            <div className="mb-2 flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-1.5 text-xs"><CalendarDays className="h-3.5 w-3.5" /><span className={cn('font-medium', due.className)}>{due.label}</span>{task.priority === 'urgent' && <Flame className="h-3.5 w-3.5 text-red-500" />}</div>
+                              <GripVertical className="h-4 w-4 text-muted-foreground/50 opacity-0 transition group-hover:opacity-100" />
+                            </div>
+                            <h3 className="text-sm font-semibold leading-snug">{task.title}</h3>
+                            {task.description && <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{task.description}</p>}
+                            {task.tags.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{task.tags.slice(0, 2).map((tag) => <Badge key={tag} variant="outline" className="h-5 bg-muted/50 px-1.5 text-[10px] font-normal">{tag}</Badge>)}</div>}
+                            <div className="mt-3 flex items-center justify-between border-t pt-2 text-[11px] text-muted-foreground">
+                              <span className="flex items-center gap-1"><span className={cn('h-2 w-2 rounded-full', priorityConfig[task.priority].dot)} />{priorityConfig[task.priority].label}</span>
+                              <span className="flex items-center gap-2">{task.subtasks.length > 0 && <span className="flex items-center gap-1"><ListChecks className="h-3.5 w-3.5" />{completedSubtasks}/{task.subtasks.length}</span>}{task.comments.length > 0 && <span className="flex items-center gap-1"><MessageSquare className="h-3.5 w-3.5" />{task.comments.length}</span>}</span>
                             </div>
                           </div>
-
-                          <div className="flex items-center gap-1 mt-2">
-                            {task.status === 'completed' && (
-                              <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-200">
-                                <CheckCircle2 className="h-3 w-3 mr-1" />
-                                Готово
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-                {tasksByManager[manager.id]?.length === 0 && (
-                  <div className="flex h-24 items-center justify-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
-                    Перетащите задачу
+                        </Card>
+                      );
+                    })}
+                    {columnTasks.length === 0 && <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-current/15 bg-white/30 px-5 text-center text-xs text-muted-foreground">Перетащите задачу в эту колонку</div>}
+                    <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground" onClick={() => openCreate(column.assigneeId)}><Plus className="h-4 w-4" />Добавить задачу</Button>
                   </div>
-                )}
-              </div>
-            </ScrollArea>
-          </div>
-        ))}
+                </ScrollArea>
+              </section>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Create Task Dialog */}
-      <Dialog open={isAdding} onOpenChange={setIsAdding}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Новая задача</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label>Название</Label>
-              <Input placeholder="Название задачи" />
+      <Dialog open={createFor !== undefined} onOpenChange={(open) => { if (!open) setCreateFor(undefined); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Новая задача</DialogTitle></DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid gap-2"><Label htmlFor="new-task-title">Название</Label><Input id="new-task-title" autoFocus value={newTask.title} onChange={(event) => setNewTask((current) => ({ ...current, title: event.target.value }))} placeholder="Что нужно сделать?" /></div>
+            <div className="grid gap-2"><Label htmlFor="new-task-description">Описание</Label><Textarea id="new-task-description" value={newTask.description} onChange={(event) => setNewTask((current) => ({ ...current, description: event.target.value }))} placeholder="Контекст и ожидаемый результат…" /></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2"><Label>Исполнитель</Label><Select value={newTask.assigneeId} onValueChange={(value) => setNewTask((current) => ({ ...current, assigneeId: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Срок</Label><Input type="date" value={newTask.dueDate} onChange={(event) => setNewTask((current) => ({ ...current, dueDate: event.target.value }))} /></div>
             </div>
-            <div className="grid gap-2">
-              <Label>Описание</Label>
-              <Textarea placeholder="Описание задачи..." className="min-h-[80px]" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Исполнитель</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {managers.slice(1).map(m => (
-                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Приоритет</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Низкий</SelectItem>
-                    <SelectItem value="medium">Средний</SelectItem>
-                    <SelectItem value="high">Высокий</SelectItem>
-                    <SelectItem value="urgent">Срочный</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Срок</Label>
-              <Input type="date" />
-            </div>
+            <div className="grid gap-2"><Label>Приоритет</Label><Select value={newTask.priority} onValueChange={(value) => setNewTask((current) => ({ ...current, priority: value as DemoTaskPriority }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(priorityConfig).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent></Select></div>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsAdding(false)}>Отмена</Button>
-            <Button onClick={() => setIsAdding(false)}>Создать</Button>
-          </div>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setCreateFor(undefined)}>Отмена</Button><Button onClick={createTask} disabled={!newTask.title.trim()}>Создать</Button></div>
         </DialogContent>
       </Dialog>
 
-      {/* Task Detail Dialog */}
       {selectedTask && (
-        <Dialog open={!!selectedTask} onOpenChange={() => setSelectedTask(null)}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {selectedTask.title}
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    'text-xs',
-                    priorityConfig[selectedTask.priority].color.includes('red') ? 'bg-red-50 text-red-700' :
-                    priorityConfig[selectedTask.priority].color.includes('orange') ? 'bg-orange-50 text-orange-700' :
-                    priorityConfig[selectedTask.priority].color.includes('amber') ? 'bg-amber-50 text-amber-700' :
-                    'bg-muted text-muted-foreground'
-                  )}
-                >
-                  {priorityConfig[selectedTask.priority].label}
-                </Badge>
-              </DialogTitle>
-            </DialogHeader>
+        <Dialog open onOpenChange={(open) => { if (!open) setSelectedTaskId(null); }}>
+          <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto p-0">
+            <div className="border-b p-6 pb-4">
+              <DialogHeader>
+                <div className="pr-8"><DialogTitle className="text-xl leading-snug">{selectedTask.title}</DialogTitle><div className="mt-2 flex flex-wrap items-center gap-2"><Badge variant="outline" className={priorityConfig[selectedTask.priority].badge}>{selectedTask.priority === 'urgent' && <Flame className="mr-1 h-3 w-3" />}{priorityConfig[selectedTask.priority].label}</Badge><Badge variant="outline">{statusLabels[selectedTask.status]}</Badge></div></div>
+              </DialogHeader>
+            </div>
 
-            <div className="space-y-4">
-              <div className="rounded-lg bg-muted p-3">
-                <p className="text-sm text-muted-foreground">{selectedTask.description}</p>
+            <div className="space-y-5 p-6 pt-4">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-1.5"><Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><UserRound className="h-3.5 w-3.5" />Исполнитель</Label><Select value={selectedTask.assigneeId ?? 'unassigned'} onValueChange={(value) => updateTask(selectedTask.id, { assigneeId: value === 'unassigned' ? null : value, status: value === 'unassigned' ? 'new' : selectedTask.status === 'new' ? 'in_progress' : selectedTask.status })}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-1.5"><Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" />Срок</Label><Input className="h-9" type="date" value={selectedTask.dueDate} onChange={(event) => updateTask(selectedTask.id, { dueDate: event.target.value })} /></div>
+                <div className="grid gap-1.5"><Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><Flame className="h-3.5 w-3.5" />Приоритет</Label><Select value={selectedTask.priority} onValueChange={(value) => updateTask(selectedTask.id, { priority: value as DemoTaskPriority })}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(priorityConfig).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent></Select></div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-muted-foreground">Исполнитель</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Avatar className="h-6 w-6">
-                        <AvatarFallback className="text-[10px]">
-                          {selectedTask.assignee.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium">{selectedTask.assignee.name}</span>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-muted-foreground">Срок</p>
-                  </div>
-                  <p className={cn('font-medium mt-1', getDueDateStatus(selectedTask.dueDate).color)}>
-                    {format(selectedTask.dueDate, 'EEEE, d MMMM', { locale: ru })}
-                  </p>
+              <div className="grid gap-2"><Label>Название</Label><Input value={selectedTask.title} onChange={(event) => updateTask(selectedTask.id, { title: event.target.value })} /></div>
+              <div className="grid gap-2"><Label>Описание</Label><Textarea className="min-h-28" value={selectedTask.description} onChange={(event) => updateTask(selectedTask.id, { description: event.target.value })} placeholder="Добавьте детали задачи…" /></div>
+              {selectedTask.tags.length > 0 && <div><p className="mb-2 flex items-center gap-1.5 text-sm font-medium"><Tag className="h-4 w-4" />Ярлыки</p><div className="flex flex-wrap gap-1.5">{selectedTask.tags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div></div>}
+
+              <Separator />
+              <div>
+                <div className="mb-3 flex items-center justify-between"><h3 className="flex items-center gap-2 text-sm font-semibold"><ListChecks className="h-4 w-4" />Подзадачи</h3><span className="text-xs text-muted-foreground">{selectedTask.subtasks.filter((item) => item.completed).length}/{selectedTask.subtasks.length}</span></div>
+                <div className="space-y-2">
+                  {selectedTask.subtasks.map((subtask) => <label key={subtask.id} className="flex cursor-pointer items-start gap-2 rounded-md border p-2.5 text-sm"><Checkbox checked={subtask.completed} onCheckedChange={(checked) => updateTask(selectedTask.id, { subtasks: selectedTask.subtasks.map((item) => item.id === subtask.id ? { ...item, completed: checked === true } : item) })} /><span className={cn(subtask.completed && 'text-muted-foreground line-through')}>{subtask.title}</span></label>)}
+                  <div className="flex gap-2"><Input value={newSubtask} onChange={(event) => setNewSubtask(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addSubtask(); }} placeholder="Добавить подзадачу…" /><Button variant="outline" onClick={addSubtask} disabled={!newSubtask.trim()}><Plus className="h-4 w-4" /></Button></div>
                 </div>
               </div>
 
               <Separator />
-
               <div>
-                <p className="text-sm font-medium text-foreground mb-2">История</p>
-                <ScrollArea className="h-32">
-                  <div className="space-y-2">
-                    <div className="flex gap-3 text-xs">
-                      <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
-                      <div>
-                        <p className="text-muted-foreground">Задача создана</p>
-                        <p className="text-muted-foreground">{formatDistanceToNow(selectedTask.dueDate, { addSuffix: true, locale: ru })}</p>
-                      </div>
-                    </div>
-                  </div>
-                </ScrollArea>
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><MessageSquare className="h-4 w-4" />Активность и комментарии</h3>
+                <div className="space-y-3">
+                  <div className="flex gap-3 text-sm"><div className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-muted"><Clock3 className="h-3.5 w-3.5 text-muted-foreground" /></div><div><p>Задача создана</p><p className="text-xs text-muted-foreground">{format(parseISO(selectedTask.createdAt), 'd MMMM, HH:mm', { locale: ru })}</p></div></div>
+                  {selectedTask.comments.map((comment) => <div key={comment.id} className="flex gap-3 text-sm"><Avatar className="h-7 w-7"><AvatarFallback className="bg-primary/10 text-[9px] text-primary">ДД</AvatarFallback></Avatar><div className="min-w-0 flex-1 rounded-lg bg-muted/60 p-3"><div className="mb-1 flex items-center justify-between gap-2"><strong className="text-xs">{comment.author}</strong><span className="text-[10px] text-muted-foreground">{format(parseISO(comment.createdAt), 'd MMM, HH:mm', { locale: ru })}</span></div><p className="whitespace-pre-wrap text-sm">{comment.text}</p></div></div>)}
+                  <div className="flex gap-2"><Textarea value={newComment} onChange={(event) => setNewComment(event.target.value)} placeholder="Напишите комментарий…" className="min-h-20" /><Button size="icon" className="self-end" onClick={addComment} disabled={!newComment.trim()}><Send className="h-4 w-4" /></Button></div>
+                </div>
               </div>
 
-              <div className="flex gap-2">
-                <Select
-                  value={selectedTask.status}
-                  onValueChange={(v) => handleStatusChange(selectedTask.id, v as Task['status'])}
-                >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="new">Новая</SelectItem>
-                    <SelectItem value="in_progress">В работе</SelectItem>
-                    <SelectItem value="waiting">Ожидание</SelectItem>
-                    <SelectItem value="completed">Завершена</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button variant="destructive" size="sm">Удалить</Button>
+              <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center">
+                <Select value={selectedTask.status} onValueChange={(value) => updateTask(selectedTask.id, { status: value as DemoTaskStatus })}><SelectTrigger className="sm:w-[180px]"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(statusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
+                <Button className="gap-2 sm:ml-auto" onClick={() => updateTask(selectedTask.id, { status: 'completed' })}><Check className="h-4 w-4" />Завершить</Button>
+                <Button variant="destructive" size="icon" aria-label="Удалить задачу" onClick={() => { setTasks((current) => current.filter((task) => task.id !== selectedTask.id)); setSelectedTaskId(null); }}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </div>
           </DialogContent>

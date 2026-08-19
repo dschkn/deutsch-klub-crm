@@ -1,369 +1,121 @@
-import { useState } from 'react';
-import { Card, CardContent } from '../components/ui/card';
+import { useMemo, useState } from 'react';
+import { addWeeks, eachDayOfInterval, endOfWeek, format, isSameDay, parseISO, startOfWeek, subWeeks } from 'date-fns';
+import { ru } from 'date-fns/locale';
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Users } from 'lucide-react';
+import { Avatar, AvatarFallback } from '../components/ui/avatar';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '../components/ui/dialog';
-import { Label } from '../components/ui/label';
+import { Card } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Input } from '../components/ui/input';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Sun,
-  Heart,
-  Plane,
-  User,
-  Plus,
-} from 'lucide-react';
-import { users } from '../data/sampleData';
-import { format, startOfMonth, addDays, subMonths, addMonths, isSameDay, isSameMonth, startOfWeek, getDay } from 'date-fns';
+import { demoAdministrators, getShift, getShiftHours } from '../data/demoAdministrators';
+import { cn } from '../lib/utils';
 
-const administrators = users.filter(u => u.role === 'administrator' || u.role === 'manager');
-
-interface Shift {
-  id: string;
-  userId: string;
-  date: Date;
-  type: 'morning' | 'afternoon' | 'full';
-  status: 'scheduled' | 'completed';
-}
-
-interface TimeOff {
-  id: string;
-  userId: string;
-  startDate: Date;
-  endDate: Date;
-  type: 'vacation' | 'sick' | 'personal';
-  status: 'approved' | 'pending' | 'rejected';
-}
-
-const initialShifts: Shift[] = administrators.flatMap(admin => {
-  const today = new Date();
-  return Array.from({ length: 30 }, (_, i) => {
-    const date = addDays(today, i - 15);
-    if (Math.random() > 0.3 && getDay(date) !== 0 && getDay(date) !== 6) {
-      return {
-        id: `${admin.id}-${i}`,
-        userId: admin.id,
-        date,
-        type: randomElement(['morning', 'afternoon', 'full']),
-        status: date < today ? 'completed' as const : 'scheduled' as const,
-      };
-    }
-    return null;
-  }).filter(Boolean);
-}) as Shift[];
-
-const initialTimeOff: TimeOff[] = [
-  { id: 'to1', userId: users[8].id, startDate: addDays(new Date(), 14), endDate: addDays(new Date(), 18), type: 'vacation', status: 'approved' },
-  { id: 'to2', userId: users[9].id, startDate: addDays(new Date(), 7), endDate: addDays(new Date(), 8), type: 'sick', status: 'approved' },
-  { id: 'to3', userId: users[3].id, startDate: addDays(new Date(), 21), endDate: addDays(new Date(), 25), type: 'vacation', status: 'pending' },
-];
-
-function randomElement<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
+const DEMO_TODAY = parseISO('2026-08-19');
 
 export default function AdminSchedule() {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [shifts] = useState(initialShifts);
-  const [timeOff] = useState(initialTimeOff);
-  const [selectedStaff, setSelectedStaff] = useState<string>('all');
-
-  const monthStart = startOfMonth(currentMonth);
-  const monthStartDay = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const daysInMonth = [];
-
-  let day = monthStartDay;
-  for (let i = 0; i < 42; i++) {
-    daysInMonth.push(day);
-    day = addDays(day, 1);
-  }
-
-  const handlePrevious = () => setCurrentMonth(subMonths(currentMonth, 1));
-  const handleNext = () => setCurrentMonth(addMonths(currentMonth, 1));
-  const handleToday = () => setCurrentMonth(new Date());
-
-  const staffToShow = selectedStaff === 'all'
-    ? administrators
-    : administrators.filter(a => a.id === selectedStaff);
-
-  const getShiftForDay = (userId: string, date: Date): Shift | undefined => {
-    return shifts.find(s => s.userId === userId && isSameDay(s.date, date));
-  };
-
-  const getTimeOffForDay = (userId: string, date: Date): TimeOff | undefined => {
-    return timeOff.find(t =>
-      t.userId === userId &&
-      date >= t.startDate &&
-      date <= t.endDate
-    );
-  };
-
-  const shiftColors: Record<Shift['type'], string> = {
-    morning: 'bg-amber-100 text-amber-800 border-amber-200',
-    afternoon: 'bg-blue-100 text-blue-800 border-blue-200',
-    full: 'bg-green-100 text-green-800 border-green-200',
-  };
-
-  const timeOffColors: Record<TimeOff['type'], string> = {
-    vacation: 'bg-purple-100 text-purple-800 border-purple-200',
-    sick: 'bg-red-100 text-red-800 border-red-200',
-    personal: 'bg-slate-100 text-slate-800 border-slate-200',
-  };
-
-  const timeOffIcons: Record<TimeOff['type'], React.ReactNode> = {
-    vacation: <Plane className="h-3 w-3" />,
-    sick: <Heart className="h-3 w-3" />,
-    personal: <User className="h-3 w-3" />,
-  };
+  const [weekAnchor, setWeekAnchor] = useState(DEMO_TODAY);
+  const [selectedAdmin, setSelectedAdmin] = useState('all');
+  const weekStart = startOfWeek(weekAnchor, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(weekAnchor, { weekStartsOn: 1 });
+  const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
+  const administrators = selectedAdmin === 'all' ? demoAdministrators : demoAdministrators.filter((admin) => admin.id === selectedAdmin);
+  const todayKey = format(DEMO_TODAY, 'yyyy-MM-dd');
+  const onDutyToday = useMemo(() => demoAdministrators.filter((admin) => getShift(admin.id, todayKey)), [todayKey]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Administrator Schedule</h1>
-          <p className="text-muted-foreground">Staff scheduling, shifts, and time-off management</p>
-        </div>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Time Off
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Request Time Off</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label>Staff Member</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select staff" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {administrators.map(admin => (
-                      <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="startDate">Start Date</Label>
-                  <Input id="startDate" type="date" />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="endDate">End Date</Label>
-                  <Input id="endDate" type="date" />
-                </div>
-              </div>
-              <div className="grid gap-2">
-                <Label>Type</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="vacation">Vacation</SelectItem>
-                    <SelectItem value="sick">Sick Leave</SelectItem>
-                    <SelectItem value="personal">Personal</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline">Cancel</Button>
-              <Button>Submit Request</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-full bg-green-100 p-2">
-                <Sun className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">On Duty Today</p>
-                <p className="text-2xl font-bold">{shifts.filter(s => isSameDay(s.date, new Date())).length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-full bg-purple-100 p-2">
-                <Plane className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">On Vacation</p>
-                <p className="text-2xl font-bold">{timeOff.filter(t => new Date() >= t.startDate && new Date() <= t.endDate && t.type === 'vacation').length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-full bg-red-100 p-2">
-                <Heart className="h-5 w-5 text-red-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Sick Leave</p>
-                <p className="text-2xl font-bold">{timeOff.filter(t => new Date() >= t.startDate && new Date() <= t.endDate && t.type === 'sick').length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-full bg-amber-100 p-2">
-                <Clock className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Pending Requests</p>
-                <p className="text-2xl font-bold">{timeOff.filter(t => t.status === 'pending').length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filters and Navigation */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handlePrevious}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleToday}>
-            Today
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleNext}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <h2 className="text-lg font-semibold ml-4">{format(currentMonth, 'MMMM yyyy')}</h2>
-        </div>
-
-        <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="All Staff" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Staff</SelectItem>
-            {administrators.map(admin => (
-              <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Calendar */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="grid grid-cols-7 border-b">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-              <div key={day} className="p-3 text-center font-medium text-sm text-muted-foreground bg-muted">
-                {day}
-              </div>
-            ))}
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-primary" />
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Расписание администраторов</h1>
           </div>
-          <div className="grid grid-cols-7">
-            {daysInMonth.map((date, i) => {
-              const isCurrentMonth = isSameMonth(date, currentMonth);
-              const isToday = isSameDay(date, new Date());
-              const isWeekend = getDay(date) === 0 || getDay(date) === 6;
+          <p className="mt-1 text-sm text-muted-foreground">Рабочие интервалы перенесены из актуального графика, имена заменены на вымышленные.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm">
+            <Users className="h-4 w-4 text-emerald-600" />
+            <span className="text-muted-foreground">Сегодня на смене</span>
+            <strong>{onDutyToday.length}</strong>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setWeekAnchor(DEMO_TODAY)}>Сегодня</Button>
+        </div>
+      </div>
 
-              return (
-                <div
-                  key={i}
-                  className={`min-h-[120px] border-b border-r p-2 ${!isCurrentMonth ? 'bg-muted' : ''} ${isToday ? 'bg-blue-50' : ''}`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`text-sm font-medium ${!isCurrentMonth ? 'text-muted-foreground' : isToday ? 'text-blue-700' : 'text-foreground'}`}>
-                      {format(date, 'd')}
-                    </span>
+      <Card className="overflow-hidden">
+        <div className="flex flex-col gap-3 border-b bg-muted/20 p-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setWeekAnchor((date) => subWeeks(date, 1))} aria-label="Предыдущая неделя"><ChevronLeft className="h-4 w-4" /></Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setWeekAnchor((date) => addWeeks(date, 1))} aria-label="Следующая неделя"><ChevronRight className="h-4 w-4" /></Button>
+            <h2 className="ml-1 text-sm font-semibold sm:text-base">{format(weekStart, 'd MMMM', { locale: ru })} — {format(weekEnd, 'd MMMM yyyy', { locale: ru })}</h2>
+          </div>
+          <Select value={selectedAdmin} onValueChange={setSelectedAdmin}>
+            <SelectTrigger className="h-9 w-full bg-background sm:w-[250px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все администраторы</SelectItem>
+              {demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="min-w-[1260px]">
+            <div className="grid border-b bg-muted/40" style={{ gridTemplateColumns: '220px repeat(7, minmax(145px, 1fr))' }}>
+              <div className="sticky left-0 z-10 flex items-end border-r bg-muted/40 p-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Сотрудник</div>
+              {weekDays.map((day) => {
+                const isToday = isSameDay(day, DEMO_TODAY);
+                const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                return (
+                  <div key={day.toISOString()} className={cn('border-r p-3 text-center last:border-r-0', isWeekend && 'bg-slate-100/70', isToday && 'bg-emerald-50')}>
+                    <div className="text-xs font-medium uppercase text-muted-foreground">{format(day, 'EEEEEE', { locale: ru })}</div>
+                    <div className={cn('mt-0.5 text-base font-semibold', isToday && 'text-emerald-700')}>{format(day, 'd MMM', { locale: ru })}</div>
+                    {isToday && <Badge className="mt-1 h-5 bg-emerald-100 px-1.5 text-[10px] text-emerald-800 hover:bg-emerald-100">Сегодня</Badge>}
                   </div>
-                  {isCurrentMonth && !isWeekend && (
-                    <div className="space-y-1">
-                      {staffToShow.slice(0, 4).map(staff => {
-                        const shift = getShiftForDay(staff.id, date);
-                        const timeOffEntry = getTimeOffForDay(staff.id, date);
+                );
+              })}
+            </div>
 
-                        if (timeOffEntry) {
-                          return (
-                            <div
-                              key={staff.id}
-                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${timeOffColors[timeOffEntry.type]}`}
-                            >
-                              {timeOffIcons[timeOffEntry.type]}
-                              <span className="truncate">{staff.name.split(' ')[0]}</span>
-                            </div>
-                          );
-                        }
-
-                        if (shift) {
-                          return (
-                            <div
-                              key={staff.id}
-                              className={`px-1.5 py-0.5 rounded text-xs ${shiftColors[shift.type]}`}
-                              title={`${staff.name} - ${shift.type} shift`}
-                            >
-                              <span className="truncate">{staff.name.split(' ')[0]}</span>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })}
-                      {staffToShow.length > 4 && (
-                        <div className="text-xs text-muted-foreground">+{staffToShow.length - 4} more</div>
-                      )}
+            {administrators.map((admin) => {
+              const weeklyHours = weekDays.reduce((total, day) => total + getShiftHours(getShift(admin.id, format(day, 'yyyy-MM-dd'))), 0);
+              return (
+                <div key={admin.id} className="grid border-b last:border-b-0" style={{ gridTemplateColumns: '220px repeat(7, minmax(145px, 1fr))' }}>
+                  <div className="sticky left-0 z-10 flex min-h-24 items-center gap-3 border-r bg-background p-3">
+                    <Avatar className="h-9 w-9"><AvatarFallback className={cn('text-xs font-semibold text-white', admin.accent)}>{admin.initials}</AvatarFallback></Avatar>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{admin.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{admin.role}</p>
+                      <p className="mt-1 text-[11px] font-medium text-primary">{weeklyHours} ч. за неделю</p>
                     </div>
-                  )}
+                  </div>
+                  {weekDays.map((day) => {
+                    const dateKey = format(day, 'yyyy-MM-dd');
+                    const shift = getShift(admin.id, dateKey);
+                    const isToday = isSameDay(day, DEMO_TODAY);
+                    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                    return (
+                      <div key={dateKey} className={cn('min-h-24 border-r p-2 last:border-r-0', isWeekend && 'bg-slate-50/70', isToday && 'bg-emerald-50/50')}>
+                        {shift ? (
+                          <div className={cn('h-full rounded-lg border border-primary/20 bg-primary/5 p-2', isToday && 'border-emerald-300 bg-emerald-100/70')}>
+                            <div className="mb-1.5 flex items-center justify-between"><span className={cn('text-[11px] font-semibold uppercase text-primary', isToday && 'text-emerald-800')}>Смена</span><span className="text-[11px] text-muted-foreground">{getShiftHours(shift)} ч.</span></div>
+                            <div className="space-y-1">
+                              {shift.segments.map((segment) => <div key={segment} className="flex items-center gap-1.5 text-xs font-medium"><Clock3 className="h-3 w-3 text-muted-foreground" />{segment.replace('-', '–')}</div>)}
+                            </div>
+                          </div>
+                        ) : <div className="flex h-full min-h-20 items-center justify-center text-xs text-muted-foreground/70">Выходной</div>}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
           </div>
-        </CardContent>
+        </div>
       </Card>
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-sm">
-        <span className="text-muted-foreground">Legend:</span>
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-3 rounded bg-amber-100 border border-amber-200" />
-          <span>Morning</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-3 rounded bg-blue-100 border border-blue-200" />
-          <span>Afternoon</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-3 rounded bg-green-100 border border-green-200" />
-          <span>Full Day</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-3 rounded bg-purple-100 border border-purple-200" />
-          <span>Vacation</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-3 rounded bg-red-100 border border-red-200" />
-          <span>Sick</span>
-        </div>
+      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm border border-primary/30 bg-primary/10" /> Рабочая смена</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-100" /> Выходной</span>
+        <span>Перерыв между интервалами не входит в рабочие часы.</span>
       </div>
     </div>
   );
