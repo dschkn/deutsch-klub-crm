@@ -11,6 +11,7 @@ import type {
   NormalizedEventRegistration, NormalizedClubMember, NormalizedVacation,
   NormalizedClubEvent,
 } from '../types/normalized';
+import { realGroups } from './realGroups';
 
 const store = DataStore.getInstance();
 
@@ -58,10 +59,18 @@ function _toStudent(ns: NormalizedStudent): Student {
     language: ns.language,
     currentGroup,
     status: ns.status,
-    paymentStatus: 'pending',
+    paymentStatus: ns.paymentStatus,
     joinDate: ns.createdAt,
-    balance: 0,
+    balance: ns.balance,
     notes: ns.notes.join('; '),
+    birthDate: ns.birthDate,
+    profession: ns.profession,
+    howDidYouKnow: ns.source,
+    days: ns.preferredDays,
+    times: ns.preferredTimes,
+    format: ns.preferredFormat,
+    germanLevel: ns.language === 'German' ? ns.level as Student['germanLevel'] : undefined,
+    englishLevel: ns.language === 'English' ? ns.level as Student['englishLevel'] : undefined,
   };
 }
 
@@ -74,7 +83,7 @@ function _toGroup(ng: NormalizedGroup, shallow?: boolean): Group {
       }).filter(Boolean) as Student[];
 
   const teacher = _resolveUser(ng.teacherId) || { id: '', name: '', email: '', phone: '', role: 'teacher' as const };
-  const schedule: ScheduleItem[] = [];
+  const schedule: ScheduleItem[] = realGroups.find(group => group.id === ng.id)?.schedule || [];
 
   return {
     id: ng.id,
@@ -144,7 +153,7 @@ function _toTeacher(nt: NormalizedTeacher): Teacher {
   const teacherGroups: Group[] = nt.groupIds
     .map(gid => store.getGroup(gid))
     .filter(Boolean)
-    .map(ng => _toGroup(ng as NormalizedGroup, true));
+    .map(ng => _toGroup(ng as NormalizedGroup, false));
 
   const scheduleItems: TeacherScheduleItem[] = nt.scheduleItemIds
     .map(sid => store.getScheduleItem(sid))
@@ -281,7 +290,7 @@ export function getGroup(id: string): Group | undefined {
 }
 
 export function getAllGroups(): Group[] {
-  return store.getAllGroups().map(ng => _toGroup(ng, true));
+  return store.getAllGroups().map(ng => _toGroup(ng, false));
 }
 
 export function getTeacherGroups(teacherId: string): Group[] {

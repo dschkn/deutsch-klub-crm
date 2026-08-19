@@ -136,6 +136,8 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       startDate: now,
       endDate: new Date(now.getFullYear() + 1, 0, 1),
       schedule: realSchedule,
+      studentIds: [],
+      maxStudents,
       status: 'planned',
     });
 

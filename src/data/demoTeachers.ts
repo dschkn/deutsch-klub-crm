@@ -27,15 +27,12 @@ const anonymizedTeacherNames = [
   'Рустам Романов',
   'Нана Гордеева',
   'Вита Симонова',
-  'Арья Зорина',
-  'Ангелина Ильченко',
-  'Орлова Марина',
-  'Тея Тимошина',
 ];
 
 export const demoTeacherOptions: DemoTeacherOption[] = anonymizedTeacherNames.map((name, index) => ({
   id: `t${index + 1}`,
   name,
+  isOnlineOnly: [1, 4, 7, 10, 13, 16].includes(index),
 }));
 
 export const demoTeacherUserMap = Object.fromEntries(

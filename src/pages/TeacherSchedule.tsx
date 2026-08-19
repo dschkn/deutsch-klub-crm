@@ -20,7 +20,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from '../components/ui/
 import { allTeachers, allStudents, allGroups } from '../data/sampleData';
 import { realGroups } from '../data/realGroups';
 import { DataStore } from '../data/store';
-import { TeacherScheduleItem, Teacher, Group, ScheduleStatus, CellComment, TeacherComment, RecurrenceRule } from '../types';
+import { TeacherScheduleItem, Teacher, Group, Student, ScheduleStatus, CellComment, TeacherComment, RecurrenceRule } from '../types';
 import { NormalizedTeacherScheduleItem } from '../types/normalized';
 import ScheduleLessonDialog from '../components/schedule/ScheduleLessonDialog';
 import CreateGroupDialog from '../components/group/CreateGroupDialog';
@@ -1154,8 +1154,10 @@ export default function TeacherSchedule() {
           startDate: rg.startDate,
           endDate: rg.endDate,
           status: rg.status,
-          students: [],
-          maxStudents: 0,
+          students: rg.studentIds
+            .map(studentId => allStudents.find(student => student.id === studentId))
+            .filter(Boolean) as Student[],
+          maxStudents: rg.maxStudents,
           price: rg.price,
         } : undefined,
         format: si.format === 'hybrid' ? 'offline' : (si.format as 'online' | 'offline' || 'offline'),

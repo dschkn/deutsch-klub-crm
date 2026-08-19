@@ -1,4 +1,4 @@
-import { User, Lead, Student, Group, Task, ChatConversation, Teacher, Payment, ClubEvent, Permission, Lesson, ActivityItem, ScheduleItem, TeacherScheduleItem, Vacation, TeacherStatistics, EventRegistration, ScheduleStatus } from '../types';
+import { User, Lead, Student, Group, Task, ChatConversation, Teacher, Payment, ClubEvent, Permission, Lesson, ActivityItem, ScheduleItem, Vacation, TeacherStatistics, EventRegistration } from '../types';
 import type {
   NormalizedStudent,
   NormalizedGroup,
@@ -257,7 +257,22 @@ export function generateGroups(count: number): Group[] {
   return groups.slice(0, count);
 }
 
-export const allGroups = generateGroups(45);
+export const allGroups: Group[] = realGroups.map(group => ({
+  id: group.id,
+  name: group.name,
+  language: group.language,
+  level: (group.level.match(/[ABC]\d/)?.[0] || 'A2') as Group['level'],
+  teacher: users.find(user => user.id === group.teacherId) || users.find(user => user.role === 'teacher')!,
+  schedule: group.schedule,
+  startDate: group.startDate,
+  endDate: group.endDate,
+  status: group.status,
+  students: group.studentIds
+    .map(studentId => allStudents.find(student => student.id === studentId))
+    .filter(Boolean) as Student[],
+  maxStudents: group.maxStudents,
+  price: group.price,
+}));
 
 export function generateTasks(count: number): Task[] {
   const tasks: Task[] = [];
@@ -359,109 +374,49 @@ export function generateConversations(count: number): ChatConversation[] {
 export const allConversations = generateConversations(25);
 
 export function generateTeachers(): Teacher[] {
-  return teachers.map(teacher => {
+  return teachers.map((teacher, index) => {
     const teacherGroups = allGroups.filter(g => g.teacher.id === teacher.id);
+    const teacherLessons = demoScheduleAugust2026.filter(item => item.teacherId === teacher.id);
 
     const statistics: TeacherStatistics = {
       totalStudents: teacherGroups.reduce((sum, g) => sum + g.students.length, 0),
-      activeGroups: teacherGroups.length,
-      completedLessons: randomInt(50, 300),
-      averageRating: 4 + Math.random(),
-      totalHours: randomInt(100, 500),
+      activeGroups: teacherGroups.filter(group => group.status === 'active').length,
+      completedLessons: 84 + teacherLessons.length * 3 + index * 2,
+      averageRating: 4.6 + (index % 4) * 0.1,
+      totalHours: 190 + teacherLessons.length * 2 + index * 7,
     };
 
     const vacations: Vacation[] = [
       {
-        id: generateId(),
-        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        endDate: new Date(Date.now() + 37 * 24 * 60 * 60 * 1000),
+        id: `vacation-${teacher.id}-2026`,
+        startDate: new Date(2026, 9, 5 + (index % 10)),
+        endDate: new Date(2026, 9, 12 + (index % 10)),
         type: 'vacation',
-        status: Math.random() > 0.5 ? 'approved' : 'pending',
+        status: index % 5 === 0 ? 'pending' : 'approved',
       },
     ];
 
-    const scheduleItems: TeacherScheduleItem[] = [];
-    const today = new Date();
-    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-    for (let i = -7; i <= 14; i++) {
-      const date = new Date(startOfToday.getTime() + i * 24 * 60 * 60 * 1000);
-      const dayOfWeek = date.getDay();
-      if (dayOfWeek === 0) continue;
-
-      const timeSlots = [
-        { start: '08:00', end: '08:30' },
-        { start: '08:30', end: '09:00' },
-        { start: '09:00', end: '09:30' },
-        { start: '09:30', end: '10:30' },
-        { start: '10:00', end: '11:00' },
-        { start: '10:30', end: '11:30' },
-        { start: '11:00', end: '12:30' },
-        { start: '11:30', end: '12:00' },
-        { start: '12:00', end: '13:00' },
-        { start: '12:30', end: '13:30' },
-        { start: '13:00', end: '14:00' },
-        { start: '13:30', end: '14:30' },
-        { start: '14:00', end: '15:30' },
-        { start: '14:30', end: '15:00' },
-        { start: '15:00', end: '16:00' },
-        { start: '15:30', end: '16:30' },
-        { start: '16:00', end: '17:30' },
-        { start: '16:30', end: '17:00' },
-        { start: '17:00', end: '18:00' },
-        { start: '17:30', end: '18:30' },
-        { start: '18:00', end: '19:30' },
-        { start: '18:30', end: '19:00' },
-        { start: '19:00', end: '20:00' },
-        { start: '19:30', end: '20:30' },
-        { start: '20:00', end: '21:00' },
-        { start: '20:30', end: '21:30' },
-        { start: '21:00', end: '22:00' },
-        { start: '21:30', end: '22:00' },
-      ];
-
-      const shuffledTimes = [...timeSlots].sort(() => Math.random() - 0.5);
-      const numSlots = Math.random() > 0.5 ? 2 : 1;
-      for (let slot = 0; slot < numSlots; slot++) {
-        const groupForDay = teacherGroups.find(g => g.schedule.some(s => s.dayOfWeek === dayOfWeek)) ||
-                           randomElement(teacherGroups) ||
-                           allGroups[Math.floor(Math.random() * allGroups.length)];
-        if (groupForDay) {
-          const timeSlot = shuffledTimes[slot];
-          const statusPool: ScheduleStatus[] = [
-            'trial_lesson', 'group_start', 'needs_replacement', 'replacement',
-            'last_lesson', 'unpaid', 'confirmed_paid', 'needs_attention',
-            'recruiting', 'cancelled',
-          ];
-          const status = statusPool[Math.floor(Math.random() * statusPool.length)];
-
-          scheduleItems.push({
-            id: generateId(),
-            date,
-            startTime: timeSlot.start,
-            endTime: timeSlot.end,
-            type: 'lesson',
-            status,
-            group: groupForDay,
-            classroom: Math.random() > 0.3 ? `Ауд. ${randomInt(1, 7)}` : undefined,
-            zoomRoom: Math.random() > 0.8 ? 'https://zoom.us/j/' + generateId() : undefined,
-            format: Math.random() > 0.5 ? 'online' : 'offline',
-          });
-        }
-      }
-    }
-
     return {
       user: teacher,
-      languages: ['t20', 't21', 't22', 't23', 't24'].includes(teacher.id) ? ['English'] : ['German'],
-      specializations: randomElement([['Grammar'], ['Conversation'], ['Business'], ['Exam Prep'], ['Grammar', 'Conversation']]),
-      hourlyRate: randomInt(1500, 3000),
+      languages: teacherLessons.some(item => item.groupLanguage === 'English') ? ['English'] : ['German'],
+      specializations: [
+        ['Грамматика', 'Разговорная практика'],
+        ['Интенсивы', 'Подготовка к экзаменам'],
+        ['Фонетика', 'Разговорные клубы'],
+        ['Индивидуальные занятия'],
+      ][index % 4],
+      hourlyRate: 1700 + (index % 6) * 250,
       groups: teacherGroups,
-      schedule: scheduleItems,
+      schedule: [],
       vacations,
       statistics,
       isOnlineOnly: teacher.isOnlineOnly,
-      weeklyNote: undefined,
+      weeklyNote: [
+        'Предпочитает получать замены минимум за сутки.',
+        'Готов вести тестирования в свободных окнах.',
+        'По пятницам работает только онлайн.',
+        'Можно предлагать новые вечерние группы.',
+      ][index % 4],
     };
   });
 }
@@ -469,29 +424,22 @@ export function generateTeachers(): Teacher[] {
 export const allTeachers = generateTeachers();
 
 export function generatePayments(count: number): Payment[] {
-  const payments: Payment[] = [];
-  const activeStudents = allStudents.filter(s => s.status === 'active');
-
-  for (let i = 0; i < count; i++) {
-    const student = randomElement(activeStudents);
-    const dueDate = randomDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
-    const isPaid = Math.random() > 0.3;
-    const isOverdue = !isPaid && dueDate < new Date();
-
-    payments.push({
-      id: generateId(),
+  return allStudents.slice(0, count).map((student, index) => {
+    const group = allGroups.find(candidate => candidate.students.some(member => member.id === student.id));
+    const dueDate = new Date(2026, 7, 10 + (index % 15));
+    const status: Payment['status'] = student.paymentStatus;
+    return {
+      id: `payment-demo-${String(index + 1).padStart(3, '0')}`,
       student,
-      amount: randomElement([8000, 10000, 12000, 15000]),
+      amount: group ? Math.round(group.price / 2) : 12500,
       dueDate,
-      paidDate: isPaid ? new Date(dueDate.getTime() - randomInt(0, 5) * 24 * 60 * 60 * 1000) : undefined,
-      status: isPaid ? 'paid' : (isOverdue ? 'overdue' : 'pending'),
-      method: isPaid ? randomElement(['cash', 'card', 'transfer', 'online']) : undefined,
-      description: randomElement(['Monthly tuition', 'Intensive course fee', 'Individual lessons', 'Exam preparation']),
-      group: randomElement(allGroups),
-    });
-  }
-
-  return payments;
+      paidDate: status === 'paid' ? new Date(2026, 7, 8 + (index % 12)) : undefined,
+      status,
+      method: status === 'paid' ? (['card', 'transfer', 'online'] as const)[index % 3] : undefined,
+      description: group ? `Оплата курса ${group.name}` : 'Пакет индивидуальных занятий',
+      group,
+    };
+  });
 }
 
 export const allPayments = generatePayments(80);
@@ -673,6 +621,14 @@ function _oldToNormStudent(s: Student): NormalizedStudent {
     language: s.language,
     level: s.currentLevel,
     status: s.status,
+    paymentStatus: s.paymentStatus,
+    balance: s.balance,
+    birthDate: s.birthDate,
+    profession: s.profession,
+    source: s.howDidYouKnow,
+    preferredDays: s.days || [],
+    preferredTimes: s.times || [],
+    preferredFormat: s.format,
     groupIds: [],
     contractIds: [],
     paymentIds: [],
@@ -687,17 +643,18 @@ function _oldToNormStudent(s: Student): NormalizedStudent {
 }
 
 function _oldToNormGroup(g: Group): NormalizedGroup {
+  const source = realGroups.find(group => group.id === g.id);
   return {
     id: g.id,
     name: g.name,
-    code: `26-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+    code: source?.code || g.id,
     language: g.language,
-    level: g.level,
-    courseType: 'group',
-    hours: 72,
+    level: source?.level || g.level,
+    courseType: source?.courseType || 'group',
+    hours: source?.hours || 48,
     teacherId: g.teacher.id,
     teacherName: g.teacher.name,
-    textbook: '',
+    textbook: source?.textbook || '',
     studentIds: g.students.map(s => s.id),
     lessonIds: [],
     scheduleIds: [],
@@ -976,8 +933,8 @@ function _seedStore(): void {
     }
   });
 
-  // 15. Import the fixed anonymized schedule for 17-23 August 2026.
-  // The previous random generator made the central schedule change on every reload.
+  // 15. Import the fixed anonymized schedule for three consecutive August weeks.
+  // One shared seed keeps the schedule, groups, rosters and teacher profiles aligned.
   store.getAllScheduleItems().forEach(item => store.deleteScheduleItem(item.id));
   const teacherNames = new Map(demoTeacherOptions.map(teacher => [teacher.id, teacher.name]));
 
@@ -988,12 +945,18 @@ function _seedStore(): void {
     const [endHour, endMinute] = endTime.split(':').map(Number);
     const start = new Date(year, month - 1, day, startHour, startMinute);
     const end = new Date(year, month - 1, day, endHour, endMinute);
+    const group = item.groupId ? realGroups.find(candidate => candidate.id === item.groupId) : undefined;
 
     store.addScheduleItem({
       ...item,
       start,
       end,
       teacherName: teacherNames.get(item.teacherId) || item.teacherName,
+      courseStartDate: group?.startDate,
+      courseEndDate: group?.endDate,
+      courseHours: group?.hours,
+      coursePrice: group?.price,
+      textbook: group?.textbook,
       commentIds: [],
       createdAt: start,
       updatedAt: start,
@@ -1005,6 +968,27 @@ function _seedStore(): void {
       scheduleItemIds: store.getAllScheduleItems()
         .filter(item => item.teacherId === teacher.id)
         .map(item => item.id),
+    });
+  });
+
+  const groupCommentTemplates = [
+    'Состав подтверждён. Напомнить студентам об учебнике до следующего занятия.',
+    'Один студент просил запись вводной части; согласовать с преподавателем.',
+    'Проверить оплату второго учебного блока в конце недели.',
+    'Группа идёт в хорошем темпе, переносов на этой неделе не планируется.',
+    'Новому участнику отправлены материалы и ссылка на онлайн-комнату.',
+    'После середины курса собрать короткую обратную связь по темпу занятий.',
+  ];
+  realGroups.forEach((group, index) => {
+    const createdAt = new Date(2026, 7, 10 + (index % 9), 10 + (index % 7), 20);
+    store.addComment({
+      id: `comment-group-${String(index + 1).padStart(3, '0')}`,
+      entityType: 'group',
+      entityId: group.id,
+      authorId: index % 2 === 0 ? 'u9' : 'u10',
+      text: groupCommentTemplates[index % groupCommentTemplates.length],
+      createdAt,
+      updatedAt: createdAt,
     });
   });
 

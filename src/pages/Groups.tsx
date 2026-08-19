@@ -35,6 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import { realGroups, RealGroup } from '../data/realGroups';
+import { importedStudents } from '../data/importedStudents';
 import { demoTeacherUserMap } from '../data/demoTeachers';
 import { DataStore } from '../data/store';
 import type { NormalizedComment } from '../types/normalized';
@@ -60,6 +61,12 @@ const displayGroups: DisplayGroup[] = realGroups.map(g => ({
   ...g,
   teacherUser: g.teacherId ? demoTeacherUserMap[g.teacherId] || null : null,
 }));
+
+const studentsById = new Map(importedStudents.map(student => [student.id, student]));
+
+function getGroupStudents(group: RealGroup) {
+  return group.studentIds.map(studentId => studentsById.get(studentId)).filter(Boolean);
+}
 
 const statusLabels: Record<string, string> = {
   active: 'Текущие',
@@ -204,7 +211,7 @@ export default function Groups() {
                         <span className="text-xs text-muted-foreground flex-1 truncate">{group.teacherName}</span>
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Users className="h-3 w-3" />
-                          <span>0</span>
+                          <span>{group.studentIds.length}/{group.maxStudents}</span>
                         </div>
                       </div>
                     </button>
@@ -280,7 +287,7 @@ export default function Groups() {
                     <div className="p-4 space-y-6">
                       <div>
                         <div className="flex items-center justify-between mb-4">
-                          <h3 className="font-medium">Студенты (0)</h3>
+                          <h3 className="font-medium">Студенты ({selectedGroup.studentIds.length})</h3>
                           <div className="flex gap-2">
                             <Button variant="outline" size="sm" onClick={() => setTransferDialogOpen(true)}>
                               <ArrowRight className="h-4 w-4 mr-1" />
@@ -303,11 +310,33 @@ export default function Groups() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              <TableRow>
-                                <TableCell colSpan={3} className="text-center text-muted-foreground py-8 text-sm">
-                                  Нет зачисленных студентов
-                                </TableCell>
-                              </TableRow>
+                              {getGroupStudents(selectedGroup).length === 0 ? (
+                                <TableRow>
+                                  <TableCell colSpan={3} className="text-center text-muted-foreground py-8 text-sm">
+                                    Группа пока находится в наборе
+                                  </TableCell>
+                                </TableRow>
+                              ) : getGroupStudents(selectedGroup).map(student => student && (
+                                <TableRow key={student.id}>
+                                  <TableCell>
+                                    <div>
+                                      <p className="font-medium text-sm">{student.name}</p>
+                                      <p className="text-xs text-muted-foreground">{student.email}</p>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex gap-1.5">
+                                      <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Учится</Badge>
+                                      <Badge className={student.paymentStatus === 'paid' ? 'bg-yellow-200 text-yellow-900 hover:bg-yellow-200' : student.paymentStatus === 'overdue' ? 'bg-red-100 text-red-700 hover:bg-red-100' : 'bg-amber-100 text-amber-800 hover:bg-amber-100'}>
+                                        {student.paymentStatus === 'paid' ? 'Оплачено' : student.paymentStatus === 'overdue' ? 'Просрочено' : 'Ожидает оплаты'}
+                                      </Badge>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">Открыть</Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
                             </TableBody>
                           </Table>
                         </div>

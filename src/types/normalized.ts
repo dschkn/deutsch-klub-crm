@@ -13,6 +13,14 @@ export interface NormalizedStudent {
   language: 'German' | 'English';
   level: string;
   status: 'active' | 'inactive' | 'graduated' | 'frozen';
+  paymentStatus: 'paid' | 'pending' | 'overdue';
+  balance: number;
+  birthDate?: Date;
+  profession?: string;
+  source?: string;
+  preferredDays: string[];
+  preferredTimes: string[];
+  preferredFormat?: 'online' | 'offline';
   groupIds: string[];
   contractIds: string[];
   paymentIds: string[];
