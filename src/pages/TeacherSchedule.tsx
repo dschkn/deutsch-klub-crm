@@ -29,7 +29,7 @@ import DropConfirmDialog from '../components/schedule/DropConfirmDialog';
 import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parse, getDay, differenceInMinutes } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import {
-  dayNames, LESSON_TYPE_COLORS, LESSON_TYPE_LABELS,
+  dayNames, LESSON_TYPE_LABELS, getScheduleCardColors,
   START_HOUR, END_HOUR, SLOT_MINUTES, SLOT_HEIGHT, DAY_HEADER_HEIGHT,
   STATUS_MAP, languageLabels,
 } from './teacherSchedule/constants';
@@ -38,6 +38,7 @@ import {
   loadComments, saveComments,
   loadTeacherComments, saveTeacherComments,
   loadIndividualLessons, saveIndividualLessons,
+  getMondayFirstDayIndex,
 } from './teacherSchedule/helpers';
 
 function getStatusStyle(status: ScheduleStatus) {
@@ -1130,9 +1131,11 @@ export default function TeacherSchedule() {
       const rg = si.groupId ? realGroups.find(g => g.id === si.groupId) : undefined;
       const startTime = `${String(si.start.getHours()).padStart(2,'0')}:${String(si.start.getMinutes()).padStart(2,'0')}`;
       const endTime = `${String(si.end.getHours()).padStart(2,'0')}:${String(si.end.getMinutes()).padStart(2,'0')}`;
-      const effectiveStatus = si.status === 'cancelled' ? 'cancelled' as ScheduleStatus :
-        si.status === 'unpaid' ? 'unpaid' as ScheduleStatus :
-        rg?.status === 'active' ? 'group_start' as ScheduleStatus : 'planned' as ScheduleStatus;
+      const effectiveStatus = si.status in STATUS_MAP
+        ? si.status as ScheduleStatus
+        : rg?.status === 'active'
+          ? 'group_start' as ScheduleStatus
+          : 'unavailable' as ScheduleStatus;
       return {
         id: si.id,
         groupId: si.groupId,
@@ -1158,8 +1161,8 @@ export default function TeacherSchedule() {
           price: rg.price,
         } : undefined,
         format: si.format === 'hybrid' ? 'offline' : (si.format as 'online' | 'offline' || 'offline'),
-        classroom: si.roomId || undefined,
-        zoomRoom: si.zoomRoomId || undefined,
+        classroom: si.classroomName || si.roomId || undefined,
+        zoomRoom: si.classroomName ? undefined : si.zoomRoomId || undefined,
         studentName: si.studentName || si.groupName,
         studentId: si.studentId,
         // Flat display fields from ScheduleItem
@@ -1630,7 +1633,7 @@ export default function TeacherSchedule() {
                       <span className={`text-[10px] font-bold uppercase tracking-tight ${
                         isToday ? 'text-blue-700' : isOffDay ? 'text-muted-foreground' : 'text-muted-foreground'
                       }`}>
-                        {dayNames[day.getDay()]}
+                        {dayNames[getMondayFirstDayIndex(day)]}
                       </span>
                     </div>
                     {/* Time slots — hourly labels */}
@@ -1791,7 +1794,7 @@ export default function TeacherSchedule() {
                             item.status;
 
                           const style = getStatusStyle(effectiveStatus);
-                          const typeColor = LESSON_TYPE_COLORS[item.type] || LESSON_TYPE_COLORS.lesson;
+                          const typeColor = getScheduleCardColors(item.type, item.format, effectiveStatus);
                           const start = parseTime(item.startTime);
                           const displayEndStr = resizePreview?.id === item.id ? resizePreview.endTime : item.endTime;
                           const end = parseTime(displayEndStr);
@@ -1808,7 +1811,7 @@ export default function TeacherSchedule() {
                           const isPast = day < new Date(new Date().toDateString()) && !isSameDay(day, new Date());
                           const isUpcoming = !isPast && !active && !isCancelled && isSameDay(day, new Date());
 
-                          const bgColor = isCancelled ? '#F5F5F5' : active ? typeColor.bg.replace('E8F5E9', 'C8E6C9').replace('E3F2FD', 'BBDEFB').replace('FFF3E0', 'FFE0B2').replace('F3E5F5', 'E1BEE7').replace('E0F7FA', 'B2EBF2') : typeColor.bg;
+                          const bgColor = isCancelled ? '#F5F5F5' : typeColor.bg;
                           const borderColor = active ? '#EF4444' : isCancelled ? '#E0E0E0' : typeColor.border;
                           const textColor = isCancelled ? '#9E9E9E' : typeColor.text;
 

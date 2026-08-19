@@ -75,6 +75,10 @@ export function getWeekKey(date: Date): string {
   return format(start, 'yyyy-MM-dd');
 }
 
+export function getMondayFirstDayIndex(date: Date): number {
+  return (date.getDay() + 6) % 7;
+}
+
 export function loadComments(weekKey: string): CellComment[] {
   try {
     const data = localStorage.getItem(`schedule_comments_${weekKey}`);

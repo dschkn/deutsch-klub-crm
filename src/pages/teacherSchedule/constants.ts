@@ -1,25 +1,31 @@
-import { ScheduleStatus } from '../../types';
+import { ScheduleStatus, TeacherScheduleItem } from '../../types';
 
 export const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
 export const LESSON_TYPE_COLORS: Record<string, { bg: string; border: string; text: string; badge: string }> = {
-  lesson:     { bg: '#E8F5E9', border: '#A5D6A7', text: '#1B5E20', badge: '#4CAF50' },
-  individual: { bg: '#E3F2FD', border: '#90CAF9', text: '#0D47A1', badge: '#2196F3' },
-  testing:    { bg: '#FFF3E0', border: '#FFCC80', text: '#E65100', badge: '#FF9800' },
-  trial:      { bg: '#F3E5F5', border: '#CE93D8', text: '#4A148C', badge: '#9C27B0' },
-  club:       { bg: '#E0F7FA', border: '#80DEEA', text: '#00695C', badge: '#009688' },
+  lesson:     { bg: '#FFFFFF', border: '#D1D5DB', text: '#1F2937', badge: '#9CA3AF' },
+  individual: { bg: '#E8F5E9', border: '#A5D6A7', text: '#1B5E20', badge: '#4CAF50' },
+  testing:    { bg: '#E3F2FD', border: '#90CAF9', text: '#0D47A1', badge: '#2196F3' },
+  trial:      { bg: '#E3F2FD', border: '#90CAF9', text: '#0D47A1', badge: '#2196F3' },
+  club:       { bg: '#FCE7F3', border: '#F9A8D4', text: '#9D174D', badge: '#EC4899' },
 };
 
 export const LESSON_TYPE_LABELS: Record<string, string> = {
   lesson: 'Групповое',
   individual: 'Индивид.',
   testing: 'Тест',
-  trial: 'Пробный',
+  trial: 'Пробный + консультация',
   club: 'Клуб',
+  intensive: 'Интенсив',
+  grammar: 'Грамматика',
+  mini: 'Мини-группа',
+  phonetics: 'Фонетика',
+  open_lesson: 'Открытый урок',
+  language_course: 'Курс',
 };
 
 export const START_HOUR = 8;
-export const END_HOUR = 22;
+export const END_HOUR = 24;
 export const SLOT_MINUTES = 60;
 export const SLOT_HEIGHT = 60;
 export const DAY_HEADER_HEIGHT = 36;
@@ -46,3 +52,40 @@ export const languageLabels: Record<string, string> = {
   German: 'Немецкий',
   English: 'Английский',
 };
+
+type CardColors = { bg: string; border: string; text: string; badge: string };
+
+const ONLINE_GROUP_COLORS: CardColors = {
+  bg: '#F1E9FF', border: '#C4B5FD', text: '#5B21B6', badge: '#8B5CF6',
+};
+
+const OFFLINE_GROUP_COLORS: CardColors = {
+  bg: '#FFFFFF', border: '#D1D5DB', text: '#1F2937', badge: '#9CA3AF',
+};
+
+const OFFLINE_CLUB_COLORS: CardColors = {
+  bg: '#FFFFFF', border: '#F9A8D4', text: '#9D174D', badge: '#EC4899',
+};
+
+const STATUS_CARD_COLORS: Partial<Record<ScheduleStatus, CardColors>> = {
+  group_start:       { bg: '#FCE1DB', border: '#E48A78', text: '#7F1D1D', badge: '#DD7E6B' },
+  needs_replacement: { bg: '#FFF4CC', border: '#F4CF65', text: '#7C4A03', badge: '#EAB308' },
+  replacement:       { bg: '#F3DCE8', border: '#D5A6BD', text: '#701A4B', badge: '#C06A96' },
+  last_lesson:       { bg: '#FFF200', border: '#D6B900', text: '#4A3B00', badge: '#D6B900' },
+  unpaid:            { bg: '#FFF8E1', border: '#E7D7A5', text: '#5D4037', badge: '#C8A951' },
+  unavailable:       { bg: '#E5E7EB', border: '#C7CBD1', text: '#6B7280', badge: '#9CA3AF' },
+};
+
+export function getScheduleCardColors(
+  type: TeacherScheduleItem['type'],
+  format: TeacherScheduleItem['format'],
+  status: ScheduleStatus,
+): CardColors {
+  const statusColors = STATUS_CARD_COLORS[status];
+  if (statusColors) return statusColors;
+
+  if (type === 'individual') return LESSON_TYPE_COLORS.individual;
+  if (type === 'testing' || type === 'trial') return LESSON_TYPE_COLORS.testing;
+  if (type === 'club') return format === 'online' ? LESSON_TYPE_COLORS.club : OFFLINE_CLUB_COLORS;
+  return format === 'online' ? ONLINE_GROUP_COLORS : OFFLINE_GROUP_COLORS;
+}
