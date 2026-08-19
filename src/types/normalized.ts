@@ -167,6 +167,11 @@ export interface NormalizedTeacherScheduleItem {
   paymentType?: 'single' | 'package';
   packageSize?: number;
   completedCount?: number;
+  courseStartDate?: Date;
+  courseEndDate?: Date;
+  courseHours?: number;
+  coursePrice?: number;
+  textbook?: string;
 }
 
 export interface NormalizedRecurrenceRule {

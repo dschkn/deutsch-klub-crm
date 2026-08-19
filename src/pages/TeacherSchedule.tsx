@@ -1174,6 +1174,11 @@ export default function TeacherSchedule() {
         paymentType: si.paymentType,
         packageSize: si.packageSize,
         completedCount: si.completedCount,
+        courseStartDate: si.courseStartDate,
+        courseEndDate: si.courseEndDate,
+        courseHours: si.courseHours,
+        coursePrice: si.coursePrice,
+        textbook: si.textbook,
       };
     });
     const indivItems = individualLessons.filter(l =>
@@ -1954,6 +1959,10 @@ export default function TeacherSchedule() {
       <ScheduleLessonDialog
         item={lessonInfoItem}
         onOpenChange={(open) => { if (!open) setLessonInfoItem(null); }}
+        onItemUpdated={(updated) => {
+          setLessonInfoItem(updated);
+          setIndividualLessons(previous => previous.map(lesson => lesson.id === updated.id ? updated : lesson));
+        }}
       />
 
       {/* Context Menu */}

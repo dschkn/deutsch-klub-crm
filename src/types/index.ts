@@ -204,6 +204,11 @@ export interface TeacherScheduleItem {
   paymentType?: 'single' | 'package';
   packageSize?: number;
   completedCount?: number;
+  courseStartDate?: Date;
+  courseEndDate?: Date;
+  courseHours?: number;
+  coursePrice?: number;
+  textbook?: string;
   // Self-contained display fields (no group lookup needed)
   groupName?: string;
   groupLevel?: string;
