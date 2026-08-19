@@ -6,14 +6,37 @@ export interface DemoTeacherOption {
   isOnlineOnly?: boolean;
 }
 
-export const demoTeacherOptions: DemoTeacherOption[] = Array.from(
-  { length: 25 },
-  (_, index) => ({
-    id: `t${index + 1}`,
-    name: `Преподаватель ${String(index + 1).padStart(2, '0')}`,
-    isOnlineOnly: index === 0 || index === 10,
-  }),
-);
+const anonymizedTeacherNames = [
+  'Борков Евсей',
+  'Инна Силантьева',
+  'Юна Паршина',
+  'Белецкая Алина',
+  'Гарик Волков',
+  'Виктор Семёнов',
+  'Инга Смольская',
+  'Нателла Шилова',
+  'Майя Дроздова',
+  'Ева Сафонова',
+  'Свана Соколова',
+  'Тамара Антипова',
+  'Нателла Жукова',
+  'Евлалия Малинина',
+  'Дарина Шестова',
+  'Арсений Дивов',
+  'Анфиса Романова',
+  'Рустам Романов',
+  'Нана Гордеева',
+  'Вита Симонова',
+  'Арья Зорина',
+  'Ангелина Ильченко',
+  'Орлова Марина',
+  'Тея Тимошина',
+];
+
+export const demoTeacherOptions: DemoTeacherOption[] = anonymizedTeacherNames.map((name, index) => ({
+  id: `t${index + 1}`,
+  name,
+}));
 
 export const demoTeacherUserMap = Object.fromEntries(
   demoTeacherOptions.map((teacher, index) => [

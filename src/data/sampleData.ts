@@ -5,7 +5,6 @@ import type {
   NormalizedTeacher,
   NormalizedLesson,
   NormalizedPayment,
-  NormalizedTeacherScheduleItem,
   NormalizedUser,
   NormalizedTask,
   NormalizedChatConversation,
@@ -16,6 +15,7 @@ import type {
 import { importedStudents } from './importedStudents';
 import { realGroups } from './realGroups';
 import { demoTeacherOptions } from './demoTeachers';
+import { demoScheduleAugust2026 } from './demoScheduleAugust2026';
 import { DataStore } from './store';
 
 const germanFirstNames = ['Anna', 'Hans', 'Maria', 'Peter', 'Klaus', 'Greta', 'Friedrich', 'Helena', 'Maximilian', 'Sophia', 'Alexander', 'Clara', 'Sebastian', 'Emma', 'Leon', 'Lena', 'Felix', 'Mia', 'Jonas', 'Lea', 'Tim', 'Laura', 'Niklas', 'Julia', 'David', 'Sarah', 'Paul', 'Lisa', 'Jan', 'Marie'];
@@ -976,123 +976,39 @@ function _seedStore(): void {
     }
   });
 
-  // 15. Create schedule items for real groups with active/planned status
-  // Only generate if schedule items don't already exist (fixed schedule)
-  const existingRealItems = store.getAllScheduleItems().filter(si => si.id.startsWith('real_si_'));
-  if (existingRealItems.length === 0) {
-    realGroups.filter(rg => rg.status === 'active' || rg.status === 'planned').forEach(rg => {
-      if (!rg.teacherId || rg.schedule.length === 0) return;
+  // 15. Import the fixed anonymized schedule for 17-23 August 2026.
+  // The previous random generator made the central schedule change on every reload.
+  store.getAllScheduleItems().forEach(item => store.deleteScheduleItem(item.id));
+  const teacherNames = new Map(demoTeacherOptions.map(teacher => [teacher.id, teacher.name]));
 
-      const teacher = store.getTeacher(rg.teacherId);
-      const teacherUser = store.getUser(rg.teacherId);
-      if (!teacher && !teacherUser) return; // skip if teacher not in system
+  demoScheduleAugust2026.forEach(seed => {
+    const { date, startTime, endTime, ...item } = seed;
+    const [year, month, day] = date.split('-').map(Number);
+    const [startHour, startMinute] = startTime.split(':').map(Number);
+    const [endHour, endMinute] = endTime.split(':').map(Number);
+    const start = new Date(year, month - 1, day, startHour, startMinute);
+    const end = new Date(year, month - 1, day, endHour, endMinute);
 
-      // Generate weekly schedule items for this group
-      rg.schedule.forEach(sched => {
-        const current = new Date(rg.startDate);
-        const end = new Date(rg.endDate);
-
-        while (current <= end) {
-          const dayOfWeek = current.getDay();
-          const targetDay = sched.dayOfWeek % 7;
-
-          if (dayOfWeek === targetDay) {
-            const itemId = `real_si_${rg.id}_${formatDate(current)}_${sched.startTime.replace(':', '')}`;
-            const start = new Date(current);
-            const [sh, sm] = sched.startTime.split(':').map(Number);
-            start.setHours(sh, sm, 0, 0);
-            const endTime = new Date(current);
-            const [eh, em] = sched.endTime.split(':').map(Number);
-            endTime.setHours(eh, em, 0, 0);
-
-            store.addScheduleItem({
-              id: itemId,
-              teacherId: rg.teacherId,
-              groupId: rg.id,
-              lessonType: _mapCourseTypeToLessonType(rg.courseType),
-              start,
-              end: endTime,
-              status: 'planned',
-              commentIds: [],
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              groupName: rg.name,
-              groupLevel: rg.level,
-              groupLanguage: rg.language,
-              courseType: rg.courseType,
-              format: _parseFormat(rg.name),
-              teacherName: rg.teacherName,
-            } as NormalizedTeacherScheduleItem);
-          }
-          current.setDate(current.getDate() + 1);
-        }
-      });
+    store.addScheduleItem({
+      ...item,
+      start,
+      end,
+      teacherName: teacherNames.get(item.teacherId) || item.teacherName,
+      commentIds: [],
+      createdAt: start,
+      updatedAt: start,
     });
-  }
+  });
 
-  // 7. Import teacher.schedule items (only if real groups not already imported)
-  const hasRealItems = store.getAllScheduleItems().some(si => si.id.startsWith('real_si_'));
-  if (!hasRealItems) {
-    allTeachers.forEach(t => {
-      t.schedule.forEach(si => {
-        const start = new Date(si.date);
-        if (si.startTime) {
-          const [sh, sm] = si.startTime.split(':').map(Number);
-          start.setHours(sh, sm, 0, 0);
-        }
-        const end = new Date(si.date);
-        if (si.endTime) {
-          const [eh, em] = si.endTime.split(':').map(Number);
-          end.setHours(eh, em, 0, 0);
-        }
-        store.addScheduleItem({
-          id: si.id,
-          teacherId: si.teacherId || t.user.id,
-          groupId: si.group?.id,
-          studentId: si.studentId,
-          lessonType: si.type as NormalizedTeacherScheduleItem['lessonType'],
-          start,
-          end,
-          status: si.status,
-          commentIds: [],
-          createdAt: si.date,
-          updatedAt: si.date,
-        });
-      });
+  demoTeacherOptions.forEach(teacher => {
+    store.updateTeacher(teacher.id, {
+      scheduleItemIds: store.getAllScheduleItems()
+        .filter(item => item.teacherId === teacher.id)
+        .map(item => item.id),
     });
-  }
+  });
 
   console.log(`Store seeded: ${store.countStudents()} students, ${store.countGroups()} groups, ${store.countTeachers()} teachers, ${store.countPayments()} payments, ${store.countLessons()} lessons`);
-}
-
-function formatDate(d: Date): string {
-  return `${d.getFullYear()}_${String(d.getMonth()+1).padStart(2,'0')}_${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function _parseFormat(name: string): 'online' | 'offline' | 'hybrid' | undefined {
-  const trimmed = name.trim();
-  if (trimmed.endsWith('ОН')) return 'online';
-  if (trimmed.endsWith('ОФ')) return 'offline';
-  if (trimmed.endsWith('ОН/ОФ')) return 'hybrid';
-  return undefined;
-}
-
-function _mapCourseTypeToLessonType(courseType: string): NormalizedTeacherScheduleItem['lessonType'] {
-  const map: Record<string, NormalizedTeacherScheduleItem['lessonType']> = {
-    'individual': 'individual',
-    'club': 'club',
-    'group': 'lesson',
-    'intensive': 'intensive',
-    'grammar': 'grammar',
-    'Grammar': 'grammar',
-    'mini': 'mini',
-    'phonetics': 'phonetics',
-    'open_lesson': 'open_lesson',
-    'test': 'testing',
-    'medical': 'lesson',
-    'language_course': 'language_course',
-  };
-  return map[courseType] || 'lesson';
 }
 
 _seedStore();
