@@ -1,15 +1,17 @@
-import { useState, type ComponentProps, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import {
   LayoutDashboard,
-  GraduationCap as StudentIcon,
-  UsersRound as GroupIcon,
+  GraduationCap,
+  UsersRound,
   CheckSquare,
-  BookOpen as TeacherIcon,
+  MessageSquare,
+  BookOpen,
   Calendar,
   CalendarClock,
   CreditCard,
+  PartyPopper,
   BarChart3,
   Settings,
   ChevronDown,
@@ -17,37 +19,37 @@ import {
   Bell,
   Search,
   FileText,
+  Users2,
+  Target,
   Shield,
+  GraduationCap as StudentIcon,
+  UsersRound as GroupIcon,
+  BookOpen as TeacherIcon,
   X,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { useCurrentUser } from '../hooks/use-auth';
 import { useGlobalSearch } from '../hooks/use-search';
 
-const primaryNavigation = [
+const navigation = [
   { name: 'Главная', href: '/', icon: LayoutDashboard },
-  { name: 'Клиенты', href: '/students', icon: StudentIcon },
-  { name: 'Группы', href: '/groups', icon: GroupIcon },
+  { name: 'Заявки', href: '/applications', icon: FileText },
+  { name: 'Лиды', href: '/leads', icon: Target },
+  { name: 'Клиенты', href: '/students', icon: GraduationCap },
+  { name: 'Группы', href: '/groups', icon: UsersRound },
   { name: 'Задачи', href: '/tasks', icon: CheckSquare },
-  { name: 'Преподаватели', href: '/teachers', icon: TeacherIcon },
+  { name: 'Чаты', href: '/chats', icon: MessageSquare },
+  { name: 'Преподаватели', href: '/teachers', icon: BookOpen },
   { name: 'Расписание', href: '/teacher-schedule', icon: Calendar },
   { name: 'Администраторы', href: '/admin-schedule', icon: CalendarClock },
+  { name: 'Клубы', href: '/clubs', icon: Users2 },
   { name: 'Договоры', href: '/contracts', icon: FileText },
-  { name: 'Справочники', href: '/dictionaries', icon: TeacherIcon },
+  { name: 'Справочники', href: '/dictionaries', icon: BookOpen },
   { name: 'Оплаты', href: '/payments', icon: CreditCard },
+  { name: 'Мероприятия', href: '/events', icon: PartyPopper },
   { name: 'Отчёты', href: '/reports', icon: BarChart3 },
-];
-
-const systemNavigation = [
   { name: 'Права доступа', href: '/permissions', icon: Shield },
   { name: 'Настройки', href: '/settings', icon: Settings },
 ];
@@ -59,113 +61,78 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const location = useLocation();
-  const { user } = useCurrentUser();
-  const userName = user?.fullName || 'Пользователь';
-  const userRole = user?.role || '';
-  const userInitials = userName.split(' ').map((name) => name[0]).join('').slice(0, 2);
-
-  const renderNavigation = (items: typeof primaryNavigation) => items.map((item) => {
-    const isActive = location.pathname === item.href
-      || (item.href !== '/' && location.pathname.startsWith(item.href));
-
-    return (
-      <Link
-        key={item.name}
-        to={item.href}
-        title={collapsed ? item.name : undefined}
-        className={cn(
-          'group flex min-h-10 items-center rounded-full text-sm font-medium transition-[background-color,color,box-shadow] duration-150',
-          collapsed ? 'justify-center px-2' : 'gap-3 px-3.5',
-          isActive
-            ? 'bg-white text-slate-950 shadow-[0_2px_12px_rgba(15,23,42,0.07)]'
-            : 'text-slate-600 hover:bg-white/60 hover:text-slate-950'
-        )}
-      >
-        <item.icon className="h-[18px] w-[18px] flex-shrink-0 text-current" strokeWidth={1.8} />
-        {!collapsed && <span className="truncate">{item.name}</span>}
-      </Link>
-    );
-  });
 
   return (
     <aside
       className={cn(
-        'app-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col transition-[width] duration-300 will-change-[width]',
-        collapsed ? 'w-[76px]' : 'w-64'
+        'fixed left-0 top-0 z-40 h-screen border-r border-sidebar-border bg-sidebar transition-[width] duration-300 will-change-[width]',
+        collapsed ? 'w-16' : 'w-60'
       )}
     >
-      <div className={cn('flex h-[76px] flex-shrink-0 items-center', collapsed ? 'justify-center px-3' : 'justify-between px-5')}>
-        <Link to="/" className="flex min-w-0 items-center">
-          {collapsed ? (
-            <span className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-slate-950 text-xs font-semibold tracking-wide text-white shadow-sm">
+      <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
+        {!collapsed && (
+          <Link to="/" className="flex items-center gap-2.5">
+            <img src="/logo-deutsch-klub.svg" alt="Deutsch-Klub" className="h-8 w-auto" />
+          </Link>
+        )}
+        {collapsed && (
+          <Link to="/" className="flex items-center justify-center mx-auto">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground font-bold text-sm shadow-lg shadow-sidebar-accent/25">
               DK
-            </span>
-          ) : (
-            <img src="/logo-deutsch-klub.svg" alt="Deutsch-Klub" className="h-11 w-auto max-w-[176px]" />
-          )}
-        </Link>
+            </div>
+          </Link>
+        )}
         {!collapsed && (
           <Button
             variant="ghost"
             size="sm"
-            className="h-9 w-9 rounded-full p-0 text-slate-500 hover:bg-white/70 hover:text-slate-950"
-            onClick={() => setCollapsed(true)}
-            aria-label="Свернуть меню"
+            className="h-8 w-8 p-0 text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-border"
+            onClick={() => setCollapsed(!collapsed)}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
         )}
+        {collapsed && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-border absolute top-4 right-2"
+            onClick={() => setCollapsed(!collapsed)}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        )}
       </div>
-
-      {collapsed && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mx-auto mb-2 h-8 w-8 flex-shrink-0 rounded-full p-0 text-slate-500 hover:bg-white/70 hover:text-slate-950"
-          onClick={() => setCollapsed(false)}
-          aria-label="Развернуть меню"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      )}
-
-      <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        {!collapsed && (
-          <p className="mb-2 px-3 pt-1 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400">
-            Главное меню
-          </p>
-        )}
-        <div className="space-y-1">{renderNavigation(primaryNavigation)}</div>
-
-        <div className="my-4 h-px bg-slate-900/[0.06]" />
-        {!collapsed && (
-          <p className="mb-2 px-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400">
-            Система
-          </p>
-        )}
-        <div className="space-y-1">{renderNavigation(systemNavigation)}</div>
+      <nav className="flex flex-col gap-0.5 p-3 pt-4">
+        {navigation.map((item) => {
+          const isActive = location.pathname === item.href ||
+            (item.href !== '/' && location.pathname.startsWith(item.href));
+          return (
+            <Link
+              key={item.name}
+              to={item.href}
+              className={cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150',
+                isActive
+                  ? 'bg-sidebar-accent/15 text-sidebar-accent'
+                  : 'text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-border/60'
+              )}
+            >
+              <item.icon className={cn(
+                'h-[18px] w-[18px] flex-shrink-0 transition-colors',
+                isActive ? 'text-sidebar-accent' : 'text-sidebar-muted group-hover:text-sidebar-foreground'
+              )} />
+              {!collapsed && <span className="truncate">{item.name}</span>}
+            </Link>
+          );
+        })}
       </nav>
-
-      <div className={cn('flex-shrink-0 p-3', collapsed ? 'flex justify-center' : '')}>
-        <div className={cn('flex items-center rounded-2xl border border-white/70 bg-white/55', collapsed ? 'justify-center p-1.5' : 'gap-3 p-2.5')}>
-          <Avatar className="h-9 w-9 ring-1 ring-white">
-            <AvatarImage src={user?.avatar} alt={userName} />
-            <AvatarFallback className="bg-slate-950 text-xs text-white">{userInitials}</AvatarFallback>
-          </Avatar>
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-slate-900">{userName}</p>
-              <p className="truncate text-xs text-slate-500">{userRole}</p>
-            </div>
-          )}
-        </div>
-      </div>
     </aside>
   );
 }
 
-function ChevronRight(props: ComponentProps<typeof ChevronLeft>) {
-  return <ChevronLeft {...props} className={cn('rotate-180', props.className)} />;
+function ChevronRight(props: React.ComponentProps<typeof ChevronLeft>) {
+  return <ChevronLeft className="rotate-180" {...props} />;
 }
 
 interface HeaderProps {
@@ -187,7 +154,7 @@ export function Header({ sidebarCollapsed }: HeaderProps) {
 
   const userName = user?.fullName || 'Пользователь';
   const userRole = user?.role ? (roleLabels[user.role] || user.role) : '';
-  const userInitials = userName.split(' ').map((name) => name[0]).join('').slice(0, 2);
+  const userInitials = userName.split(' ').map(n => n[0]).join('').slice(0, 2);
 
   const typeIcons: Record<string, typeof Search> = {
     student: StudentIcon,
@@ -198,86 +165,83 @@ export function Header({ sidebarCollapsed }: HeaderProps) {
   return (
     <header
       className={cn(
-        'fixed right-0 top-0 z-30 flex h-[76px] items-center justify-between bg-[#f7f9f8]/95 px-6 backdrop-blur-md transition-[left] duration-300 will-change-[left]',
-        sidebarCollapsed ? 'left-[76px]' : 'left-64'
+        'fixed top-0 right-0 z-30 flex h-16 items-center justify-between border-b border-header-border bg-header/95 backdrop-blur-sm px-6 transition-[left] duration-300 will-change-[left]',
+        sidebarCollapsed ? 'left-16' : 'left-60'
       )}
     >
       <div className="flex items-center gap-4">
         <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-header-muted" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-header-muted" />
           <input
             type="text"
             value={query}
-            onChange={(event) => handleQueryChange(event.target.value)}
+            onChange={(e) => handleQueryChange(e.target.value)}
             onFocus={() => { if (results.length > 0) handleQueryChange(query); }}
             placeholder="Поиск клиентов, групп, преподавателей..."
-            className="h-10 w-80 rounded-full border border-header-border/80 bg-white/75 py-2 pl-10 pr-4 text-sm shadow-sm placeholder:text-header-muted focus:border-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-[border-color,background-color,box-shadow]"
+            className="h-9 w-80 rounded-lg border border-header-border bg-muted/50 pl-9 pr-4 py-2 text-sm placeholder:text-header-muted focus:border-primary focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 transition-[border-color,background-color,box-shadow]"
           />
           {isOpen && (
-            <div className="absolute left-0 top-full z-50 mt-2 max-h-80 w-96 overflow-y-auto rounded-2xl border border-border bg-popover shadow-xl">
+            <div className="absolute top-full left-0 mt-1 w-96 bg-popover border border-border rounded-lg shadow-lg z-50 max-h-80 overflow-y-auto">
               {results.map((result) => {
                 const Icon = typeIcons[result.type] || Search;
                 return (
                   <button
                     key={`${result.type}-${result.id}`}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent transition-colors"
+                    className="flex items-center gap-3 w-full px-3 py-2.5 text-left hover:bg-accent transition-colors"
                     onClick={() => selectResult(result)}
                   >
-                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-muted">
+                    <div className="flex-shrink-0 h-8 w-8 rounded-full bg-muted flex items-center justify-center">
                       <Icon className="h-4 w-4 text-muted-foreground" />
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{result.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">{result.subtitle}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{result.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{result.subtitle}</p>
                     </div>
-                    <span className="flex-shrink-0 text-[10px] uppercase text-muted-foreground">
+                    <span className="text-[10px] text-muted-foreground uppercase flex-shrink-0">
                       {result.type === 'student' ? 'Клиент' : result.type === 'group' ? 'Группа' : 'Преп.'}
                     </span>
                   </button>
                 );
               })}
               <button
-                className="flex w-full items-center justify-center border-t border-border px-3 py-2 text-xs text-muted-foreground hover:bg-accent"
+                className="flex items-center justify-center w-full px-3 py-2 text-xs text-muted-foreground hover:bg-accent border-t border-border"
                 onClick={close}
               >
-                <X className="mr-1 h-3 w-3" />
+                <X className="h-3 w-3 mr-1" />
                 Закрыть
               </button>
             </div>
           )}
         </div>
       </div>
-
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" className="relative h-10 w-10 rounded-full text-header-muted hover:bg-white hover:text-header-foreground">
+        <Button variant="ghost" size="sm" className="relative h-9 w-9 text-header-muted hover:text-header-foreground hover:bg-accent">
           <Bell className="h-5 w-5" />
-          <span className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-full bg-slate-950 text-[10px] font-medium text-white shadow-sm">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium shadow-sm">
             3
           </span>
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex h-11 items-center gap-2 rounded-full px-2 hover:bg-white">
-              <Avatar className="h-8 w-8 ring-2 ring-white">
+            <Button variant="ghost" className="flex items-center gap-2 px-2 h-9 hover:bg-accent">
+              <Avatar className="h-8 w-8 ring-2 ring-header-border">
                 <AvatarImage src={user?.avatar} alt={userName} />
                 <AvatarFallback className="bg-primary text-primary-foreground">{userInitials}</AvatarFallback>
               </Avatar>
               <div className="hidden text-left md:block">
                 <p className="text-sm font-medium text-header-foreground">{userName}</p>
-                <p className="-mt-0.5 text-xs text-header-muted">{userRole}</p>
+                <p className="text-xs text-header-muted -mt-0.5">{userRole}</p>
               </div>
               <ChevronDown className="h-4 w-4 text-header-muted" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48 rounded-xl">
+          <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuLabel>Мой аккаунт</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem>Профиль</DropdownMenuItem>
             <DropdownMenuItem>Настройки</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red-600" onClick={() => { logout(); navigate('/login', { replace: true }); }}>
-              Выйти
-            </DropdownMenuItem>
+            <DropdownMenuItem className="text-red-600" onClick={() => { logout(); navigate('/login', { replace: true }); }}>Выйти</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -286,25 +250,23 @@ export function Header({ sidebarCollapsed }: HeaderProps) {
 }
 
 interface LayoutProps {
-  children: ReactNode;
+  children: React.ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <div className="app-shell min-h-screen">
+    <div className="min-h-screen bg-gradient-to-br from-muted/30 via-background to-muted/30">
       <Sidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
       <Header sidebarCollapsed={sidebarCollapsed} />
       <main
         className={cn(
-          'pt-[76px] transition-[margin-left] duration-300 will-change-[margin-left]',
-          sidebarCollapsed ? 'ml-[76px]' : 'ml-64'
+          'pt-16 transition-[margin-left] duration-300 will-change-[margin-left]',
+          sidebarCollapsed ? 'ml-16' : 'ml-60'
         )}
       >
-        <div className="min-h-[calc(100vh-76px)] rounded-tl-[28px] border-l border-t border-white bg-background p-6 shadow-[-8px_-8px_30px_rgba(15,23,42,0.025)] lg:p-8">
-          {children}
-        </div>
+        <div className="p-6 lg:p-8">{children}</div>
       </main>
     </div>
   );

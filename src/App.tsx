@@ -15,7 +15,7 @@ function AuthGuard({ children }: { children: ReactNode }) {
 
 function PageLoader() {
   return (
-    <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+    <div className="flex min-h-[40vh] items-center justify-center text-sm text-gray-500">
       Загрузка…
     </div>
   );
@@ -36,7 +36,6 @@ function App() {
                     {protectedRoutes.map(({ path, component: Component }) => (
                       <Route key={path} path={path} element={<Component />} />
                     ))}
-                    <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
                 </Layout>
               </AuthGuard>
