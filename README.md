@@ -1,5 +1,7 @@
 # Deutsch-Klub CRM
 
+# ТЕСТ
+
 Internal CRM prototype for students, groups, teachers, schedules, payments and
 administrative workflows.
 
