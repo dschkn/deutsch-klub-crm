@@ -85,6 +85,7 @@ export default function Dashboard() {
         <div>
           <h1 className="tracking-tight">Главная</h1>
           <p className="text-muted-foreground mt-1">Добро пожаловать, Елена. Вот что происходит сегодня.</p>
+          <p className="mt-1">тест</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" className="gap-2">
