@@ -79,12 +79,19 @@ const taskPresets = [
 ];
 type StudentState = "Учится" | "Думает" | "Ожидает" | "Закончил" | "Отказался";
 type PayMark = "half" | "paid" | "trial" | "studying";
+type GroupComment = {
+  id: string;
+  text: string;
+  author: string;
+  createdAt: string;
+};
 type Workspace = {
   rosters: Record<string, string[]>;
   paymentMarks: Record<string, PayMark[]>;
   studentStates: Record<string, StudentState>;
   customStudents: Student[];
   groupDrafts: Record<string, Partial<RealGroup>>;
+  groupComments: Record<string, GroupComment[]>;
 };
 
 const emptyWorkspace: Workspace = {
@@ -95,6 +102,25 @@ const emptyWorkspace: Workspace = {
   studentStates: {},
   customStudents: [],
   groupDrafts: {},
+  groupComments: Object.fromEntries(
+    realGroups.map((group) => [
+      group.id,
+      [
+        {
+          id: `${group.id}-comment-1`,
+          text: "Курс идёт по плану. Следующая проверка набора — в конце недели.",
+          author: "Администратор",
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: `${group.id}-comment-2`,
+          text: "Проверить оплаты перед подтверждением старта.",
+          author: "Демо-директор",
+          createdAt: new Date(Date.now() - 86400000).toISOString(),
+        },
+      ],
+    ]),
+  ),
 };
 
 function loadWorkspace(): Workspace {
@@ -187,6 +213,12 @@ export default function Groups() {
   const [studentOpen, setStudentOpen] = useState(false);
   const [studentProfileId, setStudentProfileId] = useState<string | null>(null);
   const [startGroupOpen, setStartGroupOpen] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [startGroupForm, setStartGroupForm] = useState({
+    teacherMessage: "",
+    teacherEmail: "",
+  });
   const [studentForm, setStudentForm] = useState({
     firstName: "",
     lastName: "",
@@ -215,6 +247,11 @@ export default function Groups() {
   useEffect(() => {
     localStorage.setItem(GROUPS_KEY, JSON.stringify(workspace));
   }, [workspace]);
+
+  useEffect(() => {
+    setCommentDraft("");
+    setEditingCommentId(null);
+  }, [selectedId]);
   const students = useMemo(
     () => [...importedStudents, ...workspace.customStudents],
     [workspace.customStudents],
@@ -255,6 +292,62 @@ export default function Groups() {
 
   const getGroupTitle = (group: RealGroup) =>
     groupTitle(group, getPaymentCount(group), group.studentIds.length);
+
+  const selectedComments = selected
+    ? workspace.groupComments[selected.id] || []
+    : [];
+
+  const submitComment = () => {
+    if (!selected || !commentDraft.trim()) return;
+    const text = commentDraft.trim();
+    setWorkspace((current) => {
+      const comments = current.groupComments[selected.id] || [];
+      return {
+        ...current,
+        groupComments: {
+          ...current.groupComments,
+          [selected.id]: editingCommentId
+            ? comments.map((comment) =>
+                comment.id === editingCommentId
+                  ? { ...comment, text }
+                  : comment,
+              )
+            : [
+                {
+                  id: `group-comment-${Date.now()}`,
+                  text,
+                  author: "Пользователь",
+                  createdAt: new Date().toISOString(),
+                },
+                ...comments,
+              ],
+        },
+      };
+    });
+    toast.success(editingCommentId ? "Комментарий обновлён" : "Комментарий добавлен");
+    setCommentDraft("");
+    setEditingCommentId(null);
+  };
+
+  const editComment = (comment: GroupComment) => {
+    setEditingCommentId(comment.id);
+    setCommentDraft(comment.text);
+  };
+
+  const openStartGroup = () => {
+    if (!selected) return;
+    const schedule = selected.schedule
+      .map(
+        (item) =>
+          `${dayNames[item.dayOfWeek]} ${item.startTime}-${item.endTime}`,
+      )
+      .join(", ");
+    setStartGroupForm({
+      teacherMessage: `Здравствуйте!\n\nГруппа ${getGroupTitle(selected)} стартует ${format(new Date(selected.startDate), "dd.MM.yyyy")}.\nУровень: ${selected.level}.\nРасписание: ${schedule}.\nКоличество человек: ${selected.studentIds.length}.\n\nПожалуйста, подтвердите получение информации.`,
+      teacherEmail: "",
+    });
+    setStartGroupOpen(true);
+  };
 
   const openEdit = () => {
     if (!selected) return;
@@ -529,7 +622,7 @@ export default function Groups() {
                         <Button
                           size="sm"
                           className="h-8 gap-1.5 bg-[#df7b6c] px-3 text-xs hover:bg-[#ce695a]"
-                          onClick={() => setStartGroupOpen(true)}
+                          onClick={openStartGroup}
                         >
                           <Rocket className="h-3.5 w-3.5" />
                           Стартовать группу
@@ -616,12 +709,48 @@ export default function Groups() {
                       </dl>
                       <section className="flex min-h-[265px] flex-col border-l pl-5">
                         <h3 className="mb-3 font-semibold">Комментарии группы</h3>
-                        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto border-y py-3 text-sm">
-                          <div><p>Курс идёт по плану. Следующая проверка набора — в конце недели.</p><p className="mt-1 text-xs text-muted-foreground">Администратор · сегодня</p></div>
-                          <div><p>Проверить оплаты перед подтверждением старта.</p><p className="mt-1 text-xs text-muted-foreground">Демо-директор · вчера</p></div>
+                        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto border-y py-2 text-sm">
+                          {selectedComments.map((comment) => (
+                            <button
+                              key={comment.id}
+                              type="button"
+                              onClick={() => editComment(comment)}
+                              className={cn(
+                                "w-full border-b px-1 py-2 text-left transition-colors last:border-0 hover:bg-muted/60",
+                                editingCommentId === comment.id &&
+                                  "bg-teal-50 ring-1 ring-inset ring-teal-200",
+                              )}
+                            >
+                              <p>{comment.text}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {comment.author} · {format(new Date(comment.createdAt), "dd.MM.yyyy HH:mm")}
+                              </p>
+                            </button>
+                          ))}
                         </div>
-                        <Textarea className="mt-3 min-h-20" placeholder="Новый комментарий…" />
-                        <Button size="sm" className="mt-2 self-start">Отправить</Button>
+                        <Textarea
+                          className="mt-3 min-h-20"
+                          placeholder="Новый комментарий…"
+                          value={commentDraft}
+                          onChange={(event) => setCommentDraft(event.target.value)}
+                        />
+                        <div className="mt-2 flex items-center gap-2">
+                          <Button size="sm" onClick={submitComment}>
+                            {editingCommentId ? "Обновить" : "Отправить"}
+                          </Button>
+                          {editingCommentId && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setEditingCommentId(null);
+                                setCommentDraft("");
+                              }}
+                            >
+                              Отмена
+                            </Button>
+                          )}
+                        </div>
                       </section>
                     </div>
                     <div>
@@ -753,19 +882,64 @@ export default function Groups() {
       </Tabs>
 
       <Dialog open={startGroupOpen} onOpenChange={setStartGroupOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Стартовать группу</DialogTitle>
-            <DialogDescription>
-              Подготовка группы «{selected?.name}» к запуску.
+        <DialogContent className="flex h-[78vh] max-w-5xl flex-col gap-0 p-0">
+          <DialogHeader className="border-b px-8 py-7">
+            <DialogTitle className="text-center text-xl">
+              Старт группы {selected ? getGroupTitle(selected) : ""}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Сообщение и контактные данные преподавателя перед стартом группы
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg border bg-muted/30 p-5 text-sm text-muted-foreground">
-            Здесь появятся проверки оплат, договора, уведомления студентов и
-            остальные шаги запуска. Содержимое настроим на следующем этапе.
-          </div>
-          <div className="flex justify-end">
-            <Button onClick={() => setStartGroupOpen(false)}>Понятно</Button>
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="space-y-0 px-8 py-4">
+              <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-4 border-b py-4">
+                <Label className="pt-2 text-sm font-semibold text-muted-foreground">
+                  Сообщение преподавателю
+                </Label>
+                <Textarea
+                  className="min-h-[145px] resize-y"
+                  value={startGroupForm.teacherMessage}
+                  onChange={(event) =>
+                    setStartGroupForm((current) => ({
+                      ...current,
+                      teacherMessage: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-4 border-b py-6">
+                <Label className="pt-2 text-sm font-semibold text-muted-foreground">
+                  E-mail преподавателя
+                </Label>
+                <Input
+                  type="email"
+                  value={startGroupForm.teacherEmail}
+                  onChange={(event) =>
+                    setStartGroupForm((current) => ({
+                      ...current,
+                      teacherEmail: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          </ScrollArea>
+          <div className="flex justify-end gap-2 border-t px-5 py-3">
+            <Button variant="outline" onClick={() => setStartGroupOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              className="bg-[#df7b6c] hover:bg-[#ce695a]"
+              onClick={() => {
+                setStartGroupOpen(false);
+                toast.success("Группа подготовлена к старту", {
+                  description: "Следующие действия подключим на следующем этапе.",
+                });
+              }}
+            >
+              Стартовать группу!
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
