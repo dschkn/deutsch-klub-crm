@@ -5,13 +5,14 @@ import {
   FileUp,
   MoreHorizontal,
   Plus,
+  Printer,
+  Rocket,
   Search,
   Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -154,6 +155,7 @@ export default function Groups() {
   });
   const [studentOpen, setStudentOpen] = useState(false);
   const [studentProfileId, setStudentProfileId] = useState<string | null>(null);
+  const [startGroupOpen, setStartGroupOpen] = useState(false);
   const [studentForm, setStudentForm] = useState({
     firstName: "",
     lastName: "",
@@ -360,6 +362,43 @@ export default function Groups() {
     toast.success("Статус студента обновлён");
   };
 
+  const printGroup = (documentType: "attendance" | "list") => {
+    if (!selected) return;
+    const escapeHtml = (value: unknown) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const lessonDates = Array.from({ length: 5 }, (_, index) => {
+      const date = new Date(selected.startDate);
+      date.setDate(date.getDate() + index * 7);
+      return format(date, "dd.MM");
+    });
+    const title = `💡${escapeHtml(selected.name)}`;
+    const studentRows = roster
+      .map(
+        (student, index) =>
+          `<tr><td>${index + 1}</td><td>${escapeHtml(student.name)}</td>${
+            documentType === "attendance"
+              ? `<td>${escapeHtml(student.email)}</td>${lessonDates.map(() => "<td></td>").join("")}${Array.from({ length: 7 }, () => "<td></td>").join("")}`
+              : "<td></td><td></td><td></td><td></td>"
+          }</tr>`,
+      )
+      .join("");
+    const headers =
+      documentType === "attendance"
+        ? `<tr><th rowspan="2">#</th><th rowspan="2">Фамилия Имя</th><th rowspan="2">Email</th>${lessonDates.map((_, index) => `<th>${index + 1}</th>`).join("")}<th colspan="7"></th></tr><tr>${lessonDates.map((date) => `<th>${date}</th>`).join("")}${Array.from({ length: 7 }, (_, index) => `<th>${index + 1}</th>`).join("")}</tr>`
+        : '<tr><th>#</th><th>Фамилия Имя</th><th>Договор №</th><th>ООО / ИП</th><th>Наш экземпляр сдан</th><th>Данные в базе</th></tr>';
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Браузер заблокировал окно печати");
+      return;
+    }
+    printWindow.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${title}</title><style>@page{size:${documentType === "attendance" ? "A4 landscape" : "A4 portrait"};margin:8mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#252a2f}h1{margin:0;text-align:center;font-size:18px;line-height:32px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{height:30px;border:1px solid #d5d5d5;padding:4px 6px;text-align:left}th{font-weight:700;text-align:center}${documentType === "attendance" ? "th:nth-child(n+4),td:nth-child(n+4){width:5%;text-align:center}" : ""}</style></head><body><h1>${title}</h1><table><thead>${headers}</thead><tbody>${studentRows}</tbody></table><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),150));</script></body></html>`);
+    printWindow.document.close();
+  };
+
   return (
     <div className="h-[calc(100vh-7rem)] space-y-4">
       <div className="flex items-end justify-between">
@@ -435,7 +474,7 @@ export default function Groups() {
             <Card className="min-w-0 flex-1 overflow-hidden">
               {selected ? (
                 <ScrollArea className="h-full">
-                  <div className="space-y-5 p-5">
+                  <div className="space-y-4 p-5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
@@ -454,6 +493,15 @@ export default function Groups() {
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        {selected.status === "planned" && (
+                          <Button
+                            className="gap-2 bg-[#df7b6c] hover:bg-[#ce695a]"
+                            onClick={() => setStartGroupOpen(true)}
+                          >
+                            <Rocket className="h-4 w-4" />
+                            Стартовать группу
+                          </Button>
+                        )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button className="gap-2">
@@ -492,38 +540,55 @@ export default function Groups() {
                           <Edit3 className="h-4 w-4" />
                           Редактирование группы
                         </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" className="gap-2">
+                              <Printer className="h-4 w-4" />
+                              Печать
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => printGroup("attendance")}>
+                              Журнал посещений
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => printGroup("list")}>
+                              Список группы
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {[
-                        [
-                          "Начало",
-                          format(new Date(selected.startDate), "dd.MM.yyyy"),
-                        ],
-                        [
-                          "Окончание",
-                          format(new Date(selected.endDate), "dd.MM.yyyy"),
-                        ],
-                        ["Объём", `${selected.hours} ак. ч.`],
-                        ["Стоимость", `${selected.price.toLocaleString()} ₽`],
-                        ["Учебник", selected.textbook || "—"],
-                        [
-                          "Расписание",
-                          selected.schedule
-                            .map(
-                              (item) =>
-                                `${dayNames[item.dayOfWeek]} ${item.startTime}–${item.endTime}`,
-                            )
-                            .join(", ") || "—",
-                        ],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-lg bg-muted/70 p-3">
-                          <p className="text-xs text-muted-foreground">
-                            {label}
-                          </p>
-                          <p className="mt-1 text-sm font-medium">{value}</p>
+                    <div className="grid gap-5 border-y py-4 lg:grid-cols-2">
+                      <dl className="grid grid-cols-[130px_minmax(0,1fr)] content-start gap-x-5 gap-y-2 text-sm">
+                        {[
+                          ["Номер группы", selected.code],
+                          ["Язык", selected.language === "German" ? "Немецкий" : "Английский"],
+                          ["Уровень", selected.level],
+                          ["Тип курса", selected.courseType],
+                          ["Объём курса", `${selected.hours} ак. ч.`],
+                          ["Стоимость", `${selected.price.toLocaleString()} ₽`],
+                          ["Учитель", selected.teacherName],
+                          ["Учебник", selected.textbook || "—"],
+                          ["Дата начала", format(new Date(selected.startDate), "dd.MM.yyyy")],
+                          ["Дата окончания", format(new Date(selected.endDate), "dd.MM.yyyy")],
+                          ["Дни занятий", selected.schedule.map((item) => dayNames[item.dayOfWeek]).join(", ") || "—"],
+                          ["Время", selected.schedule.map((item) => `${item.startTime}–${item.endTime}`).join(", ") || "—"],
+                        ].map(([label, value]) => (
+                          <div key={label} className="contents">
+                            <dt className="text-right font-semibold text-muted-foreground">{label}</dt>
+                            <dd>{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <section className="flex min-h-[265px] flex-col border-l pl-5">
+                        <h3 className="mb-3 font-semibold">Комментарии группы</h3>
+                        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto border-y py-3 text-sm">
+                          <div><p>Курс идёт по плану. Следующая проверка набора — в конце недели.</p><p className="mt-1 text-xs text-muted-foreground">Администратор · сегодня</p></div>
+                          <div><p>Проверить оплаты перед подтверждением старта.</p><p className="mt-1 text-xs text-muted-foreground">Демо-директор · вчера</p></div>
                         </div>
-                      ))}
+                        <Textarea className="mt-3 min-h-20" placeholder="Новый комментарий…" />
+                        <Button size="sm" className="mt-2 self-start">Отправить</Button>
+                      </section>
                     </div>
                     <div>
                       <div className="mb-3 flex items-center justify-between">
@@ -641,13 +706,6 @@ export default function Groups() {
                         </Table>
                       </div>
                     </div>
-                    <div className="rounded-lg border bg-muted/20 p-4">
-                      <h3 className="mb-2 font-medium">Комментарий группы</h3>
-                      <Textarea
-                        placeholder="Заметка для администраторов…"
-                        defaultValue="Курс идёт по плану. Следующая проверка набора — в конце недели."
-                      />
-                    </div>
                   </div>
                 </ScrollArea>
               ) : (
@@ -659,6 +717,24 @@ export default function Groups() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={startGroupOpen} onOpenChange={setStartGroupOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Стартовать группу</DialogTitle>
+            <DialogDescription>
+              Подготовка группы «{selected?.name}» к запуску.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border bg-muted/30 p-5 text-sm text-muted-foreground">
+            Здесь появятся проверки оплат, договора, уведомления студентов и
+            остальные шаги запуска. Содержимое настроим на следующем этапе.
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setStartGroupOpen(false)}>Понятно</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="flex max-h-[94vh] max-w-6xl flex-col p-0">
@@ -1568,113 +1644,80 @@ function StudentProfile({
 }) {
   return (
     <Dialog open={Boolean(student)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
+      <DialogContent className="h-[88vh] w-[calc(100vw-3rem)] max-w-[1500px] overflow-hidden p-0">
         {student && (
           <>
-            <DialogHeader>
-              <div className="flex items-center gap-3">
-                <Avatar className="h-12 w-12">
-                  <AvatarFallback className="bg-teal-100 text-teal-700">
-                    {student.name
-                      .split(" ")
-                      .map((item) => item[0])
-                      .join("")
-                      .slice(0, 2)}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <DialogTitle>{student.name}</DialogTitle>
-                  <DialogDescription>Профиль студента</DialogDescription>
-                </div>
-              </div>
+            <DialogHeader className="border-b px-7 py-6 text-center sm:text-center">
+              <DialogTitle className="text-2xl">{student.name}</DialogTitle>
+              <DialogDescription className="sr-only">Профиль студента</DialogDescription>
             </DialogHeader>
-            <div className="flex flex-wrap items-center gap-2 border-y py-3">
-              <Select
-                value={state}
-                onValueChange={(value) => onState(value as StudentState)}
-              >
-                <SelectTrigger className="w-44">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["Учится", "Думает", "Ожидает", "Закончил", "Отказался"].map(
-                    (value) => (
-                      <SelectItem key={value} value={value}>
-                        {value}
-                      </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() =>
-                  toast.info(
-                    "Загрузка файлов будет подключена на следующем этапе",
-                  )
-                }
-              >
-                <FileUp className="h-4 w-4" />
-                Файл
-              </Button>
-              <Button className="gap-2" onClick={() => onTask(student)}>
-                <Plus className="h-4 w-4" />
-                Задачу
-              </Button>
-            </div>
-            <div className="grid gap-5 md:grid-cols-[1fr_1.2fr]">
-              <div className="space-y-4">
-                <section className="rounded-lg border p-4">
-                  <h3 className="mb-3 font-semibold">Основная информация</h3>
-                  <dl className="grid grid-cols-[110px_1fr] gap-y-2 text-sm">
+            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,2fr)_minmax(330px,1fr)]">
+              <ScrollArea className="h-full border-r">
+                <div className="p-7">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold">Статус:</span>
+                    <Select value={state} onValueChange={(value) => onState(value as StudentState)}>
+                      <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+                      <SelectContent>{["Учится", "Думает", "Ожидает", "Закончил", "Отказался"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="gap-2" onClick={() => toast.info("Загрузка файлов будет подключена на следующем этапе")}><FileUp className="h-4 w-4" />Файл</Button>
+                    <Button className="gap-2" onClick={() => onTask(student)}><Plus className="h-4 w-4" />Задача</Button>
+                    <Button variant="outline" className="gap-2"><Edit3 className="h-4 w-4" />Редактировать</Button>
+                  </div>
+                </div>
+                <section>
+                  <dl className="grid grid-cols-[145px_minmax(0,1fr)_150px_minmax(0,1fr)] gap-x-5 gap-y-2 text-sm">
                     <dt className="text-muted-foreground">Телефон</dt>
                     <dd>{student.phone || "—"}</dd>
+                    <dt className="text-muted-foreground">Адрес</dt><dd>—</dd>
                     <dt className="text-muted-foreground">Email</dt>
                     <dd>{student.email || "—"}</dd>
+                    <dt className="text-muted-foreground">Паспорт</dt><dd>—</dd>
                     <dt className="text-muted-foreground">Дата рождения</dt>
                     <dd>
                       {student.birthDate
                         ? format(new Date(student.birthDate), "dd.MM.yyyy")
                         : "—"}
                     </dd>
+                    <dt className="text-muted-foreground">Серия и номер</dt><dd>—</dd>
                     <dt className="text-muted-foreground">Профессия</dt>
                     <dd>{student.profession || "—"}</dd>
+                    <dt className="text-muted-foreground">Кем выдан и когда</dt><dd>—</dd>
                     <dt className="text-muted-foreground">Источник</dt>
                     <dd>{student.howDidYouKnow || "—"}</dd>
+                    <dt className="text-muted-foreground">Комментарий</dt><dd>{student.notes || "—"}</dd>
                     <dt className="text-muted-foreground">Скидки</dt>
                     <dd>{student.discounts || "—"}</dd>
+                    <dt className="text-muted-foreground"></dt><dd></dd>
+                    <dt className="font-semibold">Немецкий</dt><dd></dd><dt className="font-semibold">Английский</dt><dd></dd>
+                    <dt className="text-muted-foreground">Уровень</dt><dd>{student.germanLevel || (student.language === "German" ? student.currentLevel : "Не выбран")}</dd>
+                    <dt className="text-muted-foreground">Уровень</dt><dd>{student.englishLevel || (student.language === "English" ? student.currentLevel : "Не выбран")}</dd>
                   </dl>
                 </section>
-                <section className="rounded-lg border p-4">
-                  <h3 className="mb-3 font-semibold">Группы студента</h3>
-                  <div className="space-y-2">
+                <section className="mt-7 border-t pt-4">
+                  <Tabs defaultValue="groups">
+                    <TabsList className="bg-transparent"><TabsTrigger value="groups">Группы</TabsTrigger><TabsTrigger value="tasks">Задачи</TabsTrigger><TabsTrigger value="files">Файлы</TabsTrigger><TabsTrigger value="payments">Оплаты</TabsTrigger></TabsList>
+                    <TabsContent value="groups" className="overflow-hidden rounded-md border">
+                    <Table><TableHeader><TableRow><TableHead>Статус</TableHead><TableHead>Название</TableHead><TableHead>Начало</TableHead><TableHead>Конец</TableHead></TableRow></TableHeader><TableBody>
                     {groups.length ? (
                       groups.map((group) => (
-                        <div
-                          key={group.id}
-                          className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"
-                        >
-                          <div>
-                            <p className="font-medium">{group.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              #{group.code} · {group.level}
-                            </p>
-                          </div>
-                          <Badge className="bg-lime-500">Учится</Badge>
-                        </div>
+                        <TableRow key={group.id}><TableCell><Badge className="bg-lime-500">Учится</Badge></TableCell><TableCell className="font-medium text-teal-700">{group.name}</TableCell><TableCell>{format(new Date(group.startDate), "dd.MM.yyyy")}</TableCell><TableCell>{format(new Date(group.endDate), "dd.MM.yyyy")}</TableCell></TableRow>
                       ))
                     ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Сейчас не зачислен ни в одну группу. Профиль сохранён.
-                      </p>
+                      <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Сейчас не зачислен ни в одну группу</TableCell></TableRow>
                     )}
-                  </div>
+                    </TableBody></Table>
+                    </TabsContent>
+                  </Tabs>
                 </section>
-              </div>
-              <section className="rounded-lg border p-4">
+                </div>
+              </ScrollArea>
+              <section className="flex min-h-0 flex-col p-6">
                 <h3 className="mb-3 font-semibold">Заметки и история</h3>
-                <div className="space-y-3">
+                <ScrollArea className="min-h-0 flex-1 border-y pr-3"><div className="space-y-3 py-3">
                   {student.notes && (
                     <div className="rounded-lg bg-muted p-3 text-sm">
                       {student.notes}
@@ -1690,7 +1733,7 @@ function StudentProfile({
                         </p>
                       </div>
                     ))}
-                </div>
+                </div></ScrollArea>
                 <Textarea
                   className="mt-4 min-h-28"
                   placeholder="Добавить внутренний комментарий…"
