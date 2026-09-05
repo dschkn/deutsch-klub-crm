@@ -43,7 +43,6 @@ import {
   demoAdminTasks,
   type DemoBoardTask,
   type DemoTaskPriority,
-  type DemoTaskStatus,
   getNextShift,
   getShift,
 } from '../data/demoAdministrators';
@@ -57,19 +56,22 @@ const GROUPS_STORAGE_KEY = 'dk-groups-workspace-v2';
 const TODAY = startOfDay(new Date());
 const TODAY_KEY = format(TODAY, 'yyyy-MM-dd');
 const weekdayGenitive = ['воскресенья', 'понедельника', 'вторника', 'среды', 'четверга', 'пятницы', 'субботы'];
+const columnGlass: Record<string, string> = {
+  unassigned: 'rgba(229, 222, 191, 0.72)',
+  'admin-01': 'rgba(187, 199, 219, 0.68)',
+  'admin-02': 'rgba(184, 214, 197, 0.68)',
+  'admin-03': 'rgba(204, 190, 226, 0.68)',
+  'admin-04': 'rgba(176, 207, 224, 0.68)',
+  'admin-05': 'rgba(223, 203, 176, 0.68)',
+  'admin-06': 'rgba(218, 186, 193, 0.68)',
+  'admin-07': 'rgba(184, 194, 211, 0.68)',
+};
 
 const priorityConfig: Record<DemoTaskPriority, { label: string; dot: string; badge: string }> = {
   low: { label: 'Низкий', dot: 'bg-slate-400', badge: 'border-slate-200 bg-slate-50 text-slate-700' },
   medium: { label: 'Обычный', dot: 'bg-amber-400', badge: 'border-amber-200 bg-amber-50 text-amber-800' },
   high: { label: 'Важный', dot: 'bg-orange-500', badge: 'border-orange-200 bg-orange-50 text-orange-800' },
   urgent: { label: 'Срочный', dot: 'bg-red-500', badge: 'border-red-200 bg-red-50 text-red-700' },
-};
-
-const statusLabels: Record<DemoTaskStatus, string> = {
-  new: 'Новая',
-  in_progress: 'В работе',
-  waiting: 'Ожидание',
-  completed: 'Завершена',
 };
 
 type StoredGroupsWorkspace = {
@@ -264,6 +266,7 @@ export default function Tasks() {
   const [tasks, setTasks] = useState<DemoBoardTask[]>(loadTasks);
   const [trash, setTrash] = useState<DemoBoardTask[]>(loadTrash);
   const [trashOpen, setTrashOpen] = useState(false);
+  const [completedOpen, setCompletedOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'board' | 'list' | 'calendar'>('board');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [createFor, setCreateFor] = useState<string | null | undefined>(undefined);
@@ -302,6 +305,7 @@ export default function Tasks() {
 
   const completeTask = (taskId: string) => {
     updateTask(taskId, { status: 'completed', completedAt: new Date().toISOString() });
+    setSelectedTaskId(null);
   };
 
   const deleteTask = (task: DemoBoardTask) => {
@@ -398,21 +402,24 @@ export default function Tasks() {
   };
 
   return (
-    <div className="-m-4 min-h-[calc(100vh-4rem)] overflow-hidden bg-[radial-gradient(circle_at_18%_15%,rgba(204,235,221,0.95),transparent_34%),radial-gradient(circle_at_82%_12%,rgba(221,231,246,0.9),transparent_35%),linear-gradient(155deg,#edf4ef_0%,#dce9e1_45%,#c9d9d2_100%)] p-4 md:-m-6 md:p-6">
-      <div className="mb-4 flex flex-col gap-3 rounded-xl border border-white/70 bg-white/75 p-4 shadow-sm backdrop-blur-md xl:flex-row xl:items-end xl:justify-between">
+    <div
+      className="-m-4 min-h-[calc(100vh-4rem)] overflow-hidden bg-cover bg-center bg-fixed p-4 md:-m-6 md:p-6"
+      style={{ backgroundImage: "linear-gradient(rgba(18, 31, 31, 0.2), rgba(11, 24, 23, 0.34)), url('/tasks-nordic-forest.jpg')" }}
+    >
+      <div className="mb-4 flex flex-col gap-3 rounded-xl border border-white/25 bg-slate-950/45 p-4 text-white shadow-xl shadow-black/15 backdrop-blur-xl xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Задачи администраторов</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Рабочая доска команды</p>
+          <p className="mt-1 text-sm text-white/65">Рабочая доска команды</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[240px] flex-1 xl:w-[300px] xl:flex-none">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по задачам…" className="h-9 pl-9" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по задачам…" className="h-9 border-white/20 bg-white/90 pl-9 text-foreground" />
           </div>
           <TooltipProvider delayDuration={250}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="outline" className="h-9 cursor-help bg-white/80 px-3 font-normal">Завершено сегодня: {completedTodayCount}</Badge>
+                <button onClick={() => setCompletedOpen(true)} className="h-9 cursor-help rounded-md border border-white/20 bg-white/90 px-3 text-xs font-normal text-foreground transition hover:bg-white">Завершено сегодня: {completedTodayCount}</button>
               </TooltipTrigger>
               <TooltipContent className="max-w-[310px] bg-zinc-800 px-3 py-2 leading-relaxed text-white" side="bottom">
                 Количество задач, которым сегодня поставили статус «Завершено». Здесь учитываются все сотрудники доски.
@@ -422,17 +429,17 @@ export default function Tasks() {
           <Button className="h-9 gap-2" onClick={() => openCreate(null)}><Plus className="h-4 w-4" />Новая задача</Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="outline" size="icon" className="h-9 w-9 bg-white/80" aria-label="Настройки доски"><Settings className="h-4 w-4" /></Button></DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuContent align="end" className="w-80 rounded-xl border-white/40 bg-white/95 p-3 shadow-2xl backdrop-blur-xl">
               <DropdownMenuLabel>Вид отображения задач</DropdownMenuLabel>
               <div className="grid grid-cols-3 gap-2 p-2 pt-0">
-                <Button variant={viewMode === 'board' ? 'default' : 'outline'} className="h-auto flex-col gap-1 py-3" onClick={() => setViewMode('board')}><LayoutDashboard className="h-5 w-5" /><span className="text-xs">Доска</span></Button>
-                <Button variant={viewMode === 'list' ? 'default' : 'outline'} className="h-auto flex-col gap-1 py-3" onClick={() => setViewMode('list')}><List className="h-5 w-5" /><span className="text-xs">Список</span></Button>
-                <Button variant={viewMode === 'calendar' ? 'default' : 'outline'} className="h-auto flex-col gap-1 py-3" onClick={() => setViewMode('calendar')}><CalendarDays className="h-5 w-5" /><span className="text-xs">Календарь</span></Button>
+                <Button variant="ghost" className={cn('h-auto flex-col gap-2 rounded-lg border py-3 text-muted-foreground', viewMode === 'board' && 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-50')} onClick={() => setViewMode('board')}><LayoutDashboard className="h-7 w-7" /><span className="text-xs">Доска</span></Button>
+                <Button variant="ghost" className={cn('h-auto flex-col gap-2 rounded-lg border py-3 text-muted-foreground', viewMode === 'list' && 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-50')} onClick={() => setViewMode('list')}><List className="h-7 w-7" /><span className="text-xs">Список</span></Button>
+                <Button variant="ghost" className={cn('h-auto flex-col gap-2 rounded-lg border py-3 text-muted-foreground', viewMode === 'calendar' && 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-50')} onClick={() => setViewMode('calendar')}><CalendarDays className="h-7 w-7" /><span className="text-xs">Календарь</span></Button>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => toast.info('Настройки проекта реализуем на следующем этапе')}><FolderCog className="mr-2 h-4 w-4" />Настройки проекта</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => toast.info('Печать доски реализуем позже')}><Printer className="mr-2 h-4 w-4" />Распечатать доску</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setTrashOpen(true)}><Trash2 className="mr-2 h-4 w-4" />Корзина задач <span className="ml-auto text-xs text-muted-foreground">{trash.length}</span></DropdownMenuItem>
+              <DropdownMenuItem className="py-2.5 text-sm" onSelect={() => toast.info('Настройки проекта реализуем на следующем этапе')}><FolderCog className="mr-3 h-5 w-5" />Настройки проекта</DropdownMenuItem>
+              <DropdownMenuItem className="py-2.5 text-sm" onSelect={() => toast.info('Печать доски реализуем позже')}><Printer className="mr-3 h-5 w-5" />Распечатать доску</DropdownMenuItem>
+              <DropdownMenuItem className="py-2.5 text-sm" onSelect={() => setTrashOpen(true)}><Trash2 className="mr-3 h-5 w-5" />Корзина задач <span className="ml-auto text-xs text-muted-foreground">{trash.length}</span></DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -455,7 +462,8 @@ export default function Tasks() {
               <section
                 key={column.id}
                 data-no-board-pan
-                className={cn('w-[286px] flex-none rounded-xl border p-2 transition-all', admin?.columnTone ?? 'bg-amber-50/80', isDragTarget && 'border-primary ring-2 ring-primary/20')}
+                style={{ backgroundColor: columnGlass[column.id] }}
+                className={cn('w-[286px] flex-none rounded-xl border border-white/25 p-2 shadow-xl shadow-black/15 backdrop-blur-xl transition-all', isDragTarget && 'border-primary ring-2 ring-primary/30')}
                 onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverColumn(column.id); }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverColumn(null); }}
                 onDrop={(event) => handleDrop(event, column.assigneeId)}
@@ -470,7 +478,7 @@ export default function Tasks() {
                   </div>
                 </div>
 
-                <ScrollArea className="h-[calc(100vh-15rem)] min-h-[500px]">
+                <ScrollArea className={cn(columnTasks.length ? 'h-[calc(100vh-15rem)] min-h-[500px]' : 'h-auto')}>
                   <div className="space-y-2 pr-2">
                     {columnTasks.map((task) => {
                       const due = dueDateView(task.dueDate);
@@ -482,7 +490,7 @@ export default function Tasks() {
                           onDragStart={(event) => handleDragStart(event, task.id)}
                           onDragEnd={() => { setDragOverColumn(null); window.setTimeout(() => { draggedRef.current = false; }, 0); }}
                           onClick={() => { if (!draggedRef.current) setSelectedTaskId(task.id); }}
-                          className="group cursor-grab border-white/80 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md active:cursor-grabbing"
+                        className="group cursor-grab border-white/45 bg-white/85 shadow-md shadow-slate-950/10 backdrop-blur-md transition hover:-translate-y-0.5 hover:border-white/80 hover:bg-white/95 hover:shadow-lg active:cursor-grabbing"
                         >
                           <div className="p-3">
                             <div className="mb-2 flex items-start justify-between gap-2">
@@ -581,23 +589,33 @@ export default function Tasks() {
       </Dialog>
 
       <Sheet open={Boolean(selectedTask)} onOpenChange={(open) => { if (!open) setSelectedTaskId(null); }}>
-        {selectedTask && (
-          <SheetContent side="right" overlayClassName="bg-black/10" className="w-[min(680px,94vw)] overflow-y-auto p-0 sm:max-w-none">
-            <div className="border-b p-6 pb-4">
+        <SheetContent side="right" overlayClassName="bg-black/10" className="w-[min(560px,94vw)] overflow-y-auto border-white/20 bg-slate-50/95 p-0 shadow-2xl backdrop-blur-xl sm:max-w-none">
+          {selectedTask && (
+            <>
+            <div className="border-b border-slate-200/70 bg-white/80 p-6 pb-4">
               <SheetHeader>
-                <div className="pr-8"><SheetTitle className="text-xl leading-snug">{selectedTask.title}</SheetTitle><SheetDescription className="sr-only">Подробности и редактирование задачи</SheetDescription><div className="mt-2 flex flex-wrap items-center gap-2"><Badge variant="outline" className={priorityConfig[selectedTask.priority].badge}>{selectedTask.priority === 'urgent' && <Flame className="mr-1 h-3 w-3" />}{priorityConfig[selectedTask.priority].label}</Badge><Badge variant="outline">{statusLabels[selectedTask.status]}</Badge></div></div>
+                <div className="pr-8">
+                  <p className="mb-3 text-xs text-muted-foreground">#{selectedTask.id.replace(/\D/g, '').slice(-7) || selectedTask.id.slice(-7)}</p>
+                  <SheetTitle className="text-xl leading-snug">{selectedTask.title}</SheetTitle>
+                  <SheetDescription className="sr-only">Подробности и редактирование задачи</SheetDescription>
+                  <div className="mt-5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><LayoutDashboard className="h-4 w-4" /><span>Задачи</span><span>›</span><span>Рабочая доска</span><span>›</span><span>{selectedTask.assigneeId ? demoAdministrators.find((admin) => admin.id === selectedTask.assigneeId)?.shortName : 'Неразобранное'}</span></div>
+                </div>
               </SheetHeader>
             </div>
 
             <div className="space-y-5 p-6 pt-4">
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="grid gap-1.5"><Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><UserRound className="h-3.5 w-3.5" />Исполнитель</Label><Select value={selectedTask.assigneeId ?? 'unassigned'} onValueChange={(value) => updateTask(selectedTask.id, { assigneeId: value === 'unassigned' ? null : value, status: value === 'unassigned' ? 'new' : selectedTask.status === 'new' ? 'in_progress' : selectedTask.status })}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-1.5"><Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" />Срок</Label><Input className="h-9" type="date" value={selectedTask.dueDate} onChange={(event) => updateTask(selectedTask.id, { dueDate: event.target.value })} /></div>
-                <div className="grid gap-1.5"><Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><Flame className="h-3.5 w-3.5" />Приоритет</Label><Select value={selectedTask.priority} onValueChange={(value) => updateTask(selectedTask.id, { priority: value as DemoTaskPriority })}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(priorityConfig).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="flex flex-wrap items-center gap-2 border-b pb-4">
+                <Button size="icon" className="h-10 w-10 rounded-full"><Plus className="h-5 w-5" /></Button>
+                <Badge variant="outline" className={priorityConfig[selectedTask.priority].badge}>{selectedTask.priority === 'urgent' && <Flame className="mr-1 h-3 w-3" />}{priorityConfig[selectedTask.priority].label}</Badge>
+                <Button variant="outline" className="ml-auto gap-2 bg-white" onClick={() => completeTask(selectedTask.id)}><Check className="h-4 w-4" />Завершить</Button>
+              </div>
+              <div className="grid gap-3">
+                <div className="grid grid-cols-[120px_1fr] items-center gap-3"><Label className="flex items-center gap-1.5 text-sm text-muted-foreground"><UserRound className="h-4 w-4" />Исполнитель</Label><Select value={selectedTask.assigneeId ?? 'unassigned'} onValueChange={(value) => updateTask(selectedTask.id, { assigneeId: value === 'unassigned' ? null : value, status: value === 'unassigned' ? 'new' : selectedTask.status === 'new' ? 'in_progress' : selectedTask.status })}><SelectTrigger className="h-9 border-0 bg-transparent shadow-none"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid grid-cols-[120px_1fr] items-center gap-3"><Label className="flex items-center gap-1.5 text-sm text-muted-foreground"><CalendarDays className="h-4 w-4" />Дата</Label><Input className="h-9 border-0 bg-transparent shadow-none" type="date" value={selectedTask.dueDate} onChange={(event) => updateTask(selectedTask.id, { dueDate: event.target.value })} /></div>
+                <div className="grid grid-cols-[120px_1fr] items-center gap-3"><Label className="flex items-center gap-1.5 text-sm text-muted-foreground"><Flame className="h-4 w-4" />Приоритет</Label><Select value={selectedTask.priority} onValueChange={(value) => updateTask(selectedTask.id, { priority: value as DemoTaskPriority })}><SelectTrigger className="h-9 border-0 bg-transparent shadow-none"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(priorityConfig).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent></Select></div>
               </div>
 
-              <div className="grid gap-2"><Label>Название</Label><Input value={selectedTask.title} onChange={(event) => updateTask(selectedTask.id, { title: event.target.value })} /></div>
-              <div className="grid gap-2"><Label>Описание</Label><Textarea className="min-h-28" value={selectedTask.description} onChange={(event) => updateTask(selectedTask.id, { description: event.target.value })} placeholder="Добавьте детали задачи…" /></div>
+              <Textarea className="min-h-28 bg-white/80" value={selectedTask.description} onChange={(event) => updateTask(selectedTask.id, { description: event.target.value })} placeholder="Нажмите, чтобы добавить описание…" />
               {selectedTask.tags.length > 0 && <div><p className="mb-2 flex items-center gap-1.5 text-sm font-medium"><Tag className="h-4 w-4" />Ярлыки</p><div className="flex flex-wrap gap-1.5">{selectedTask.tags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div></div>}
 
               <Separator />
@@ -619,14 +637,13 @@ export default function Tasks() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center">
-                <Select value={selectedTask.status} onValueChange={(value) => updateTask(selectedTask.id, { status: value as DemoTaskStatus, completedAt: value === 'completed' ? new Date().toISOString() : undefined })}><SelectTrigger className="sm:w-[180px]"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(statusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
-                <Button className="gap-2 sm:ml-auto" onClick={() => completeTask(selectedTask.id)}><Check className="h-4 w-4" />Завершить</Button>
-                <Button variant="destructive" size="icon" aria-label="Удалить задачу" onClick={() => deleteTask(selectedTask)}><Trash2 className="h-4 w-4" /></Button>
+              <div className="flex justify-end border-t pt-4">
+                <Button variant="ghost" className="gap-2 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => deleteTask(selectedTask)}><Trash2 className="h-4 w-4" />В корзину</Button>
               </div>
             </div>
-          </SheetContent>
-        )}
+            </>
+          )}
+        </SheetContent>
       </Sheet>
 
       <Dialog open={trashOpen} onOpenChange={setTrashOpen}>
@@ -642,6 +659,22 @@ export default function Tasks() {
               </div>
             ))}
             {trash.length === 0 && <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">Корзина пуста</div>}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={completedOpen} onOpenChange={setCompletedOpen}>
+        <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Выполненные задачи</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            {tasks.filter((task) => task.status === 'completed').map((task) => (
+              <div key={task.id} className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50"><Check className="h-4 w-4 text-emerald-600" /></div>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{task.title}</p><p className="text-xs text-muted-foreground">{task.completedAt ? format(parseISO(task.completedAt), 'd MMMM, HH:mm', { locale: ru }) : 'Выполнено'}</p></div>
+                <Button variant="ghost" size="sm" onClick={() => updateTask(task.id, { status: task.assigneeId ? 'in_progress' : 'new', completedAt: undefined })}><RotateCcw className="mr-1.5 h-3.5 w-3.5" />Вернуть</Button>
+              </div>
+            ))}
+            {!tasks.some((task) => task.status === 'completed') && <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">Выполненных задач пока нет</div>}
           </div>
         </DialogContent>
       </Dialog>
