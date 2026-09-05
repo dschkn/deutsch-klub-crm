@@ -134,6 +134,37 @@ function paymentBadges(marks: PayMark[]) {
   ));
 }
 
+const courseTypeLabels: Record<string, string> = {
+  mini: "МИНИ",
+  intensive: "ИНТЕНСИВ",
+  club: "КЛУБ",
+  grammar: "ГРАММАТИКА",
+  phonetics: "PHONETIK",
+};
+
+function groupFormat(group: Pick<RealGroup, "schedule">) {
+  const schedule = group.schedule || [];
+  const hasOnline = schedule.some((item) => Boolean(item.zoomRoom));
+  const hasOffline = schedule.some((item) => Boolean(item.classroom));
+  if (hasOnline && hasOffline) return "ОН/ОФ";
+  return hasOnline ? "ОН" : "ОФ";
+}
+
+function groupTitle(group: RealGroup, paid: number, total: number) {
+  const language = group.language === "German" ? "Нем" : "Анг";
+  const courseType = courseTypeLabels[group.courseType];
+  const dateRange = `${format(new Date(group.startDate), "dd.MM")}-${format(new Date(group.endDate), "dd.MM")}`;
+  const days = group.schedule
+    .map((item) => dayNames[item.dayOfWeek].toUpperCase())
+    .join("/");
+  const code = group.code.replace("26-", "");
+  const originalMiddle =
+    group.name.match(/[ABC]\d(?:\.[\d.]+)?\s+(.+?)\s+\d{2}\.\d{2}/i)?.[1] || "";
+  return [language, courseType, group.level, originalMiddle, dateRange, days, code, groupFormat(group)]
+    .filter(Boolean)
+    .join(" ") + ` | ${paid}/${total}`;
+}
+
 export default function Groups() {
   const [workspace, setWorkspace] = useState(loadWorkspace);
   const [query, setQuery] = useState("");
@@ -214,6 +245,16 @@ export default function Groups() {
         .map((id) => studentMap.get(id))
         .filter(Boolean) as Student[])
     : [];
+
+  const getPaymentCount = (group: RealGroup) =>
+    group.studentIds.reduce((count, studentId) => {
+      const marks = workspace.paymentMarks[`${group.id}:${studentId}`];
+      const student = studentMap.get(studentId);
+      return count + (marks ? Number(marks.includes("paid")) : Number(student?.paymentStatus === "paid"));
+    }, 0);
+
+  const getGroupTitle = (group: RealGroup) =>
+    groupTitle(group, getPaymentCount(group), group.studentIds.length);
 
   const openEdit = () => {
     if (!selected) return;
@@ -375,7 +416,7 @@ export default function Groups() {
       date.setDate(date.getDate() + index * 7);
       return format(date, "dd.MM");
     });
-    const title = `💡${escapeHtml(selected.name)}`;
+    const title = `💡${escapeHtml(getGroupTitle(selected))}`;
     const studentRows = roster
       .map(
         (student, index) =>
@@ -395,24 +436,12 @@ export default function Groups() {
       toast.error("Браузер заблокировал окно печати");
       return;
     }
-    printWindow.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${title}</title><style>@page{size:${documentType === "attendance" ? "A4 landscape" : "A4 portrait"};margin:8mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#252a2f}h1{margin:0;text-align:center;font-size:18px;line-height:32px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{height:30px;border:1px solid #d5d5d5;padding:4px 6px;text-align:left}th{font-weight:700;text-align:center}${documentType === "attendance" ? "th:nth-child(n+4),td:nth-child(n+4){width:5%;text-align:center}" : ""}</style></head><body><h1>${title}</h1><table><thead>${headers}</thead><tbody>${studentRows}</tbody></table><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),150));</script></body></html>`);
+    printWindow.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${title}</title><style>@page{size:${documentType === "attendance" ? "A4 landscape" : "A4 portrait"};margin:15mm 12mm 12mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#252a2f}h1{margin:0 0 5mm;text-align:center;font-size:18px;line-height:26px}table{width:100%;border-collapse:collapse;font-size:14px;break-inside:auto}tr{break-inside:avoid}th,td{height:30px;border:1px solid #d5d5d5;padding:4px 6px;text-align:left}th{font-weight:700;text-align:center}${documentType === "attendance" ? "th:nth-child(n+4),td:nth-child(n+4){width:5%;text-align:center}" : ""}</style></head><body><h1>${title}</h1><table><thead>${headers}</thead><tbody>${studentRows}</tbody></table><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),150));</script></body></html>`);
     printWindow.document.close();
   };
 
   return (
-    <div className="h-[calc(100vh-7rem)] space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Группы</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Работа с группами, студентами и связанными задачами
-          </p>
-        </div>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          Добавить группу
-        </Button>
-      </div>
+    <div className="h-[calc(100vh-4.5rem)]">
       <Tabs
         value={statusTab}
         onValueChange={(value) => setStatusTab(value as RealGroup["status"])}
@@ -433,6 +462,10 @@ export default function Groups() {
               className="h-9 pl-9"
             />
           </div>
+          <Button size="sm" className="ml-auto h-8 gap-1.5 px-3 text-xs">
+            <Plus className="h-3.5 w-3.5" />
+            Добавить группу
+          </Button>
         </div>
         <TabsContent value={statusTab} className="mt-3 min-h-0 flex-1">
           <div className="flex h-full gap-4">
@@ -452,7 +485,7 @@ export default function Groups() {
                     >
                       <div className="flex justify-between gap-2">
                         <span className="truncate text-sm font-medium">
-                          {group.name}
+                          {getGroupTitle(group)}
                         </span>
                         <span className="text-xs text-muted-foreground">
                           #{group.code.replace("26-", "")}
@@ -464,7 +497,7 @@ export default function Groups() {
                       </p>
                       <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                         <Users className="h-3.5 w-3.5" />
-                        {group.studentIds.length}/{group.maxStudents}
+                        {getPaymentCount(group)}/{group.studentIds.length}
                       </div>
                     </button>
                   ))}
@@ -475,11 +508,11 @@ export default function Groups() {
               {selected ? (
                 <ScrollArea className="h-full">
                   <div className="space-y-4 p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="border-b pb-3">
                       <div>
                         <div className="flex items-center gap-2">
                           <h2 className="text-lg font-semibold">
-                            {selected.name}
+                            {getGroupTitle(selected)}
                           </h2>
                           <Badge variant="outline">
                             #{selected.code.replace("26-", "")}
@@ -492,20 +525,19 @@ export default function Groups() {
                           · {selected.level} · {selected.teacherName}
                         </p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        {selected.status === "planned" && (
-                          <Button
-                            className="gap-2 bg-[#df7b6c] hover:bg-[#ce695a]"
-                            onClick={() => setStartGroupOpen(true)}
-                          >
-                            <Rocket className="h-4 w-4" />
-                            Стартовать группу
-                          </Button>
-                        )}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          className="h-8 gap-1.5 bg-[#df7b6c] px-3 text-xs hover:bg-[#ce695a]"
+                          onClick={() => setStartGroupOpen(true)}
+                        >
+                          <Rocket className="h-3.5 w-3.5" />
+                          Стартовать группу
+                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button className="gap-2">
-                              <Plus className="h-4 w-4" />
+                            <Button size="sm" className="h-8 gap-1.5 px-3 text-xs">
+                              <Plus className="h-3.5 w-3.5" />
                               Добавить задачу
                             </Button>
                           </DropdownMenuTrigger>
@@ -526,24 +558,26 @@ export default function Groups() {
                         </DropdownMenu>
                         <Button
                           variant="outline"
-                          className="gap-2"
+                          size="sm"
+                          className="h-8 gap-1.5 px-3 text-xs"
                           onClick={() => setStudentOpen(true)}
                         >
-                          <UserPlus className="h-4 w-4" />
+                          <UserPlus className="h-3.5 w-3.5" />
                           Добавить студента
                         </Button>
                         <Button
                           variant="outline"
-                          className="gap-2"
+                          size="sm"
+                          className="h-8 gap-1.5 px-3 text-xs"
                           onClick={openEdit}
                         >
-                          <Edit3 className="h-4 w-4" />
+                          <Edit3 className="h-3.5 w-3.5" />
                           Редактирование группы
                         </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="gap-2">
-                              <Printer className="h-4 w-4" />
+                            <Button variant="outline" size="sm" className="h-8 gap-1.5 px-3 text-xs">
+                              <Printer className="h-3.5 w-3.5" />
                               Печать
                             </Button>
                           </DropdownMenuTrigger>
@@ -558,7 +592,7 @@ export default function Groups() {
                         </DropdownMenu>
                       </div>
                     </div>
-                    <div className="grid gap-5 border-y py-4 lg:grid-cols-2">
+                    <div className="grid gap-5 pb-4 lg:grid-cols-2">
                       <dl className="grid grid-cols-[130px_minmax(0,1fr)] content-start gap-x-5 gap-y-2 text-sm">
                         {[
                           ["Номер группы", selected.code],
@@ -762,8 +796,13 @@ export default function Groups() {
                   <TabsContent value="data" className="m-0 space-y-0">
                     <ReferenceField label="Номер группы">
                       <Input
-                        disabled
                         value={String(editDraft.code || "").replace("26-", "")}
+                        onChange={(e) =>
+                          setEditDraft((current) => ({
+                            ...current,
+                            code: e.target.value,
+                          }))
+                        }
                       />
                     </ReferenceField>
                     <ReferenceField label="Дата начала">
@@ -906,6 +945,35 @@ export default function Groups() {
                         }
                       />
                     </ReferenceField>
+                    <ReferenceField label="Формат">
+                      <Select
+                        value={groupFormat(editDraft as RealGroup)}
+                        onValueChange={(value) =>
+                          setEditDraft((current) => ({
+                            ...current,
+                            schedule: (current.schedule || []).map((item) =>
+                              value === "ОН"
+                                ? {
+                                    ...item,
+                                    classroom: undefined,
+                                    zoomRoom: item.zoomRoom || "Онлайн",
+                                  }
+                                : {
+                                    ...item,
+                                    zoomRoom: undefined,
+                                    classroom: item.classroom || "Офлайн",
+                                  },
+                            ),
+                          }))
+                        }
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ОФ">Офлайн</SelectItem>
+                          <SelectItem value="ОН">Онлайн</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </ReferenceField>
                     <ReferenceField label="Максимум студентов">
                       <Input
                         type="number"
@@ -930,7 +998,27 @@ export default function Groups() {
                       return (
                         <div key={day} className="border-b py-4 last:border-0">
                           <div className="flex items-center gap-2">
-                            <Checkbox checked={Boolean(item)} />
+                            <Checkbox
+                              checked={Boolean(item)}
+                              onCheckedChange={(checked) =>
+                                setEditDraft((current) => ({
+                                  ...current,
+                                  schedule: checked
+                                    ? [
+                                        ...(current.schedule || []),
+                                        {
+                                          dayOfWeek: day,
+                                          startTime: "19:00",
+                                          endTime: "20:30",
+                                          classroom: "Офлайн",
+                                        },
+                                      ].sort((a, b) => a.dayOfWeek - b.dayOfWeek)
+                                    : (current.schedule || []).filter(
+                                        (entry) => entry.dayOfWeek !== day,
+                                      ),
+                                }))
+                              }
+                            />
                             <span className="font-medium">
                               {
                                 [
@@ -950,7 +1038,16 @@ export default function Groups() {
                               <Input
                                 type="time"
                                 value={item.startTime}
-                                readOnly
+                                onChange={(e) =>
+                                  setEditDraft((current) => ({
+                                    ...current,
+                                    schedule: (current.schedule || []).map((entry) =>
+                                      entry.dayOfWeek === day
+                                        ? { ...entry, startTime: e.target.value }
+                                        : entry,
+                                    ),
+                                  }))
+                                }
                               />
                               <Select defaultValue="3">
                                 <SelectTrigger>
@@ -965,7 +1062,16 @@ export default function Groups() {
                               <Input
                                 type="time"
                                 value={item.endTime}
-                                readOnly
+                                onChange={(e) =>
+                                  setEditDraft((current) => ({
+                                    ...current,
+                                    schedule: (current.schedule || []).map((entry) =>
+                                      entry.dayOfWeek === day
+                                        ? { ...entry, endTime: e.target.value }
+                                        : entry,
+                                    ),
+                                  }))
+                                }
                               />
                               <Input
                                 value={
@@ -1001,15 +1107,18 @@ export default function Groups() {
                         ]?.endTime || "20:30"}
                       </p>
                     ))}
-                    <div className="pt-4">
-                      <Button onClick={saveGroup}>
-                        Обновить группу и переформатировать занятия
-                      </Button>
-                    </div>
                   </TabsContent>
                 </div>
               </ScrollArea>
               <GroupEditPreview group={editDraft} />
+            </div>
+            <div className="flex justify-end gap-2 border-t px-6 py-3">
+              <Button variant="outline" onClick={() => setEditOpen(false)}>
+                Отмена
+              </Button>
+              <Button onClick={saveGroup}>
+                Обновить группу и переформатировать занятия
+              </Button>
             </div>
           </Tabs>
         </DialogContent>
