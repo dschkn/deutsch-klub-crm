@@ -282,7 +282,11 @@ export default function Tasks() {
   const [newComment, setNewComment] = useState('');
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const boardBackdropRef = useRef<HTMLDivElement>(null);
-  const panRef = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false });
+  const panRef = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false, lastX: 0, lastTime: 0, velocity: 0 });
+  const inertiaFrameRef = useRef<number | null>(null);
+  const draggedTaskIdRef = useRef<string | null>(null);
+  const dragDropHandledRef = useRef(false);
+  const lastDragPointRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
@@ -327,6 +331,8 @@ export default function Tasks() {
 
   const handleDragStart = (event: DragEvent, taskId: string) => {
     draggedRef.current = true;
+    draggedTaskIdRef.current = taskId;
+    dragDropHandledRef.current = false;
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', taskId);
   };
@@ -335,6 +341,7 @@ export default function Tasks() {
     event.preventDefault();
     const taskId = event.dataTransfer.getData('text/plain');
     if (taskId) updateTask(taskId, { assigneeId, status: assigneeId ? 'in_progress' : 'new' });
+    dragDropHandledRef.current = true;
     setDragOverColumn(null);
     window.setTimeout(() => { draggedRef.current = false; }, 0);
   };
@@ -392,7 +399,8 @@ export default function Tasks() {
     if (event.button !== 0 || (event.target as HTMLElement).closest('[data-no-board-pan]')) return;
     const board = boardScrollRef.current;
     if (!board) return;
-    panRef.current = { active: true, startX: event.clientX, scrollLeft: board.scrollLeft, moved: false };
+    if (inertiaFrameRef.current) cancelAnimationFrame(inertiaFrameRef.current);
+    panRef.current = { active: true, startX: event.clientX, scrollLeft: board.scrollLeft, moved: false, lastX: event.clientX, lastTime: performance.now(), velocity: 0 };
     board.setPointerCapture(event.pointerId);
     board.classList.add('cursor-grabbing');
   };
@@ -403,6 +411,11 @@ export default function Tasks() {
     const distance = event.clientX - panRef.current.startX;
     if (Math.abs(distance) > 4) panRef.current.moved = true;
     board.scrollLeft = panRef.current.scrollLeft - distance;
+    const now = performance.now();
+    const elapsed = Math.max(now - panRef.current.lastTime, 1);
+    panRef.current.velocity = (panRef.current.lastX - event.clientX) / elapsed;
+    panRef.current.lastX = event.clientX;
+    panRef.current.lastTime = now;
   };
 
   const stopBoardPan = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -410,13 +423,38 @@ export default function Tasks() {
     panRef.current.active = false;
     if (board?.hasPointerCapture(event.pointerId)) board.releasePointerCapture(event.pointerId);
     board?.classList.remove('cursor-grabbing');
+    if (!board || !panRef.current.moved || Math.abs(panRef.current.velocity) < 0.08) return;
+    let velocity = Math.max(-1.15, Math.min(1.15, panRef.current.velocity));
+    let previous = performance.now();
+    const coast = (now: number) => {
+      const elapsed = Math.min(now - previous, 32);
+      previous = now;
+      board.scrollLeft += velocity * elapsed;
+      velocity *= Math.pow(0.91, elapsed / 16);
+      if (Math.abs(velocity) > 0.025) inertiaFrameRef.current = requestAnimationFrame(coast);
+      else inertiaFrameRef.current = null;
+    };
+    inertiaFrameRef.current = requestAnimationFrame(coast);
   };
 
   const updateBackdropParallax = () => {
     const board = boardScrollRef.current;
     const backdrop = boardBackdropRef.current;
     if (!board || !backdrop) return;
-    backdrop.style.backgroundPosition = `calc(50% + ${board.scrollLeft * 0.08}px) center`;
+    backdrop.style.backgroundPosition = `calc(50% - ${board.scrollLeft * 0.08}px) center`;
+  };
+
+  const dropIntoNearestColumn = () => {
+    const taskId = draggedTaskIdRef.current;
+    if (!taskId || dragDropHandledRef.current) return;
+    const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-task-column]'));
+    const nearest = candidates.reduce<{ element: HTMLElement; distance: number } | null>((best, element) => {
+      const rect = element.getBoundingClientRect();
+      const horizontalDistance = Math.abs(lastDragPointRef.current.x - (rect.left + rect.width / 2));
+      return !best || horizontalDistance < best.distance ? { element, distance: horizontalDistance } : best;
+    }, null);
+    const value = nearest?.element.dataset.assigneeId;
+    if (value !== undefined) updateTask(taskId, { assigneeId: value === 'unassigned' ? null : value, status: value === 'unassigned' ? 'new' : 'in_progress' });
   };
 
   return (
@@ -482,6 +520,8 @@ export default function Tasks() {
               <section
                 key={column.id}
                 data-no-board-pan
+                data-task-column
+                data-assignee-id={column.assigneeId ?? 'unassigned'}
                 style={{ backgroundColor: columnGlass[column.id] }}
                 className={cn('w-[286px] flex-none rounded-xl border border-white/25 p-2 shadow-xl shadow-black/15 backdrop-blur-xl transition-all', isDragTarget && 'border-primary ring-2 ring-primary/30')}
                 onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverColumn(column.id); }}
@@ -507,7 +547,8 @@ export default function Tasks() {
                           key={task.id}
                           draggable
                           onDragStart={(event) => handleDragStart(event, task.id)}
-                          onDragEnd={() => { setDragOverColumn(null); window.setTimeout(() => { draggedRef.current = false; }, 0); }}
+                          onDrag={(event) => { if (event.clientX || event.clientY) lastDragPointRef.current = { x: event.clientX, y: event.clientY }; }}
+                          onDragEnd={() => { dropIntoNearestColumn(); draggedTaskIdRef.current = null; setDragOverColumn(null); window.setTimeout(() => { draggedRef.current = false; }, 0); }}
                           onClick={() => { if (!draggedRef.current) setSelectedTaskId(task.id); }}
                         className="group cursor-grab border-white/45 bg-white/85 shadow-md shadow-slate-950/10 backdrop-blur-md transition hover:-translate-y-0.5 hover:border-white/80 hover:bg-white/95 hover:shadow-lg active:cursor-grabbing"
                         >
