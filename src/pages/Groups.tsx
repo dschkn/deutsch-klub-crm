@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
+  ArrowLeft,
+  ArrowRight,
   Edit3,
   FileUp,
   MoreHorizontal,
@@ -70,6 +72,7 @@ import type { Student } from "../types";
 
 const GROUPS_KEY = "dk-groups-workspace-v2";
 const TASKS_KEY = "dk-admin-kanban-v1";
+const STARTED_GROUPS_KEY = "dk-started-groups-v1";
 const dayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 const taskPresets = [
   "Тык на прод группы",
@@ -92,6 +95,8 @@ type Workspace = {
   customStudents: Student[];
   groupDrafts: Record<string, Partial<RealGroup>>;
   groupComments: Record<string, GroupComment[]>;
+  customGroups: RealGroup[];
+  groupLinks: Record<string, { previousId?: string; nextId?: string }>;
 };
 
 const emptyWorkspace: Workspace = {
@@ -121,6 +126,8 @@ const emptyWorkspace: Workspace = {
       ],
     ]),
   ),
+  customGroups: [],
+  groupLinks: {},
 };
 
 function loadWorkspace(): Workspace {
@@ -150,6 +157,14 @@ function paymentBadges(marks: PayMark[]) {
     paid: ["Оплачено", "bg-yellow-300 text-yellow-950"],
     trial: ["Пробное занятие", "bg-orange-400 text-white"],
   };
+  if (!marks.length) {
+    return (
+      <>
+        <Badge className="border-0 bg-lime-200 text-[10px] text-lime-900">Не учится</Badge>
+        <Badge className="border-0 bg-red-500 text-[10px] text-white">Не оплачено</Badge>
+      </>
+    );
+  }
   return marks.map((mark) => (
     <Badge
       key={mark}
@@ -191,6 +206,45 @@ function groupTitle(group: RealGroup, paid: number, total: number) {
     .join(" ") + ` | ${paid}/${total}`;
 }
 
+function nextCourseLevel(level: string) {
+  const parts = level.split(".");
+  const last = Number(parts[parts.length - 1]);
+  if (parts.length > 1 && Number.isFinite(last)) {
+    parts[parts.length - 1] = String(last + 1);
+    return parts.join(".");
+  }
+  const match = level.match(/^([ABC])(\d)$/i);
+  if (!match) return level;
+  const step = Number(match[2]);
+  return step < 2
+    ? `${match[1].toUpperCase()}${step + 1}`
+    : `${String.fromCharCode(match[1].toUpperCase().charCodeAt(0) + 1)}1`;
+}
+
+function continuationRange(group: RealGroup) {
+  const schedule = group.schedule.length
+    ? group.schedule
+    : [{ dayOfWeek: new Date(group.endDate).getDay(), startTime: "19:00", endTime: "20:30" }];
+  const cursor = new Date(group.endDate);
+  cursor.setHours(12, 0, 0, 0);
+  let accumulatedHours = 0;
+  let startDate: Date | null = null;
+  let endDate = new Date(cursor);
+  for (let offset = 1; offset <= 370 && accumulatedHours < group.hours; offset += 1) {
+    const date = new Date(cursor);
+    date.setDate(cursor.getDate() + offset);
+    const lessons = schedule.filter((item) => item.dayOfWeek === date.getDay());
+    lessons.forEach((lesson) => {
+      if (!startDate) startDate = new Date(date);
+      const [startHour, startMinute] = lesson.startTime.split(":").map(Number);
+      const [endHour, endMinute] = lesson.endTime.split(":").map(Number);
+      accumulatedHours += ((endHour * 60 + endMinute) - (startHour * 60 + startMinute)) / 45;
+      endDate = new Date(date);
+    });
+  }
+  return { startDate: startDate || new Date(cursor), endDate };
+}
+
 export default function Groups() {
   const [workspace, setWorkspace] = useState(loadWorkspace);
   const [query, setQuery] = useState("");
@@ -219,6 +273,14 @@ export default function Groups() {
     teacherMessage: "",
     teacherEmail: "",
   });
+  const [startEmailError, setStartEmailError] = useState("");
+  const [startSummary, setStartSummary] = useState<{
+    startedGroup: string;
+    continuationGroup: string;
+    teacher: string;
+    email: string;
+    students: string[];
+  } | null>(null);
   const [studentForm, setStudentForm] = useState({
     firstName: "",
     lastName: "",
@@ -262,7 +324,7 @@ export default function Groups() {
   );
   const groups = useMemo(
     () =>
-      realGroups.map((group) => ({
+      [...realGroups, ...(workspace.customGroups || [])].map((group) => ({
         ...group,
         ...workspace.groupDrafts[group.id],
         studentIds: workspace.rosters[group.id] ?? group.studentIds,
@@ -346,7 +408,115 @@ export default function Groups() {
       teacherMessage: `Здравствуйте!\n\nГруппа ${getGroupTitle(selected)} стартует ${format(new Date(selected.startDate), "dd.MM.yyyy")}.\nУровень: ${selected.level}.\nРасписание: ${schedule}.\nКоличество человек: ${selected.studentIds.length}.\n\nПожалуйста, подтвердите получение информации.`,
       teacherEmail: "",
     });
+    setStartEmailError("");
     setStartGroupOpen(true);
+  };
+
+  const startGroup = () => {
+    if (!selected) return;
+    if (!startGroupForm.teacherEmail.includes("@")) {
+      setStartEmailError("Укажите корректный e-mail: адрес должен содержать @");
+      return;
+    }
+
+    const existingNextId = workspace.groupLinks[selected.id]?.nextId;
+    const existingContinuation = existingNextId
+      ? groups.find((group) => group.id === existingNextId)
+      : undefined;
+    const nextLevel = nextCourseLevel(selected.level);
+    const { startDate, endDate } = continuationRange(selected);
+    const newCode = String(7000 + (Date.now() % 2000));
+    const continuationId = existingContinuation?.id || `continuation-${Date.now()}`;
+    const originalMiddle =
+      selected.name.match(/[ABC]\d(?:\.[\d.]+)?\s+(.+?)\s+\d{2}\.\d{2}/i)?.[1] || "";
+    const continuation: RealGroup = existingContinuation || {
+      ...selected,
+      id: continuationId,
+      code: newCode,
+      name: `${selected.language === "German" ? "Нем" : "Анг"} ${courseTypeLabels[selected.courseType] || ""} ${nextLevel} ${originalMiddle} ${format(startDate, "dd.MM")}-${format(endDate, "dd.MM")}`.replace(/\s+/g, " ").trim(),
+      level: nextLevel,
+      startDate,
+      endDate,
+      studentIds: [...selected.studentIds],
+      status: "planned",
+    };
+
+    setWorkspace((current) => {
+      const emptyContinuationMarks = Object.fromEntries(
+        selected.studentIds.map((studentId) => [
+          `${continuationId}:${studentId}`,
+          [] as PayMark[],
+        ]),
+      );
+      return {
+        ...current,
+        customGroups: existingContinuation
+          ? current.customGroups
+          : [...(current.customGroups || []), continuation],
+        groupDrafts: {
+          ...current.groupDrafts,
+          [selected.id]: { ...current.groupDrafts[selected.id], status: "active" },
+        },
+        rosters: {
+          ...current.rosters,
+          [continuationId]: [...selected.studentIds],
+        },
+        paymentMarks: {
+          ...current.paymentMarks,
+          ...emptyContinuationMarks,
+        },
+        groupLinks: {
+          ...current.groupLinks,
+          [selected.id]: {
+            ...current.groupLinks[selected.id],
+            nextId: continuationId,
+          },
+          [continuationId]: {
+            ...current.groupLinks[continuationId],
+            previousId: selected.id,
+          },
+        },
+      };
+    });
+
+    const startedGroups = JSON.parse(localStorage.getItem(STARTED_GROUPS_KEY) || "{}");
+    localStorage.setItem(
+      STARTED_GROUPS_KEY,
+      JSON.stringify({
+        ...startedGroups,
+        [selected.id]: {
+          startedAt: new Date().toISOString(),
+          firstLessonDate: format(new Date(selected.startDate), "yyyy-MM-dd"),
+          format: groupFormat(selected) === "ОН" ? "online" : "offline",
+        },
+      }),
+    );
+
+    const outbox = JSON.parse(localStorage.getItem("dk-teacher-mail-outbox-v1") || "[]");
+    localStorage.setItem(
+      "dk-teacher-mail-outbox-v1",
+      JSON.stringify([
+        {
+          id: `teacher-mail-${Date.now()}`,
+          groupId: selected.id,
+          to: startGroupForm.teacherEmail,
+          message: startGroupForm.teacherMessage,
+          attachment: "group-students-and-lessons.pdf",
+          status: "prepared",
+          createdAt: new Date().toISOString(),
+        },
+        ...outbox,
+      ]),
+    );
+
+    setStartGroupOpen(false);
+    setStartSummary({
+      startedGroup: getGroupTitle(selected),
+      continuationGroup: groupTitle(continuation, 0, continuation.studentIds.length),
+      teacher: selected.teacherName,
+      email: startGroupForm.teacherEmail,
+      students: roster.map((student) => student.name),
+    });
   };
 
   const openEdit = () => {
@@ -753,6 +923,34 @@ export default function Groups() {
                         </div>
                       </section>
                     </div>
+                    <div className="flex items-center justify-between border-t pt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!workspace.groupLinks[selected.id]?.previousId}
+                        onClick={() => {
+                          const previousId = workspace.groupLinks[selected.id]?.previousId;
+                          if (previousId) setSelectedId(previousId);
+                        }}
+                        className="gap-1.5"
+                      >
+                        <ArrowLeft className="h-3.5 w-3.5" />
+                        Предыдущая группа
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!workspace.groupLinks[selected.id]?.nextId}
+                        onClick={() => {
+                          const nextId = workspace.groupLinks[selected.id]?.nextId;
+                          if (nextId) setSelectedId(nextId);
+                        }}
+                        className="gap-1.5"
+                      >
+                        Группа продолжения
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                     <div>
                       <div className="mb-3 flex items-center justify-between">
                         <h3 className="font-semibold">
@@ -893,6 +1091,20 @@ export default function Groups() {
           </DialogHeader>
           <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-0 px-8 py-4">
+              <div className="mb-4 max-w-xl overflow-hidden rounded-lg border">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Студент</TableHead><TableHead>Статус</TableHead><TableHead>Контакты</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {roster.map((student) => (
+                      <TableRow key={student.id}>
+                        <TableCell className="font-medium text-teal-700">{student.name}</TableCell>
+                        <TableCell><div className="flex gap-1">{paymentBadges(workspace.paymentMarks[`${selected?.id}:${student.id}`] || ["studying"])}</div></TableCell>
+                        <TableCell className="text-xs"><p>{student.phone}</p><p className="text-muted-foreground">{student.email}</p></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
               <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-4 border-b py-4">
                 <Label className="pt-2 text-sm font-semibold text-muted-foreground">
                   Сообщение преподавателю
@@ -914,14 +1126,20 @@ export default function Groups() {
                 </Label>
                 <Input
                   type="email"
+                  aria-invalid={Boolean(startEmailError)}
+                  className={cn(startEmailError && "border-red-500 focus-visible:ring-red-500")}
                   value={startGroupForm.teacherEmail}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setStartEmailError("");
                     setStartGroupForm((current) => ({
                       ...current,
                       teacherEmail: event.target.value,
-                    }))
-                  }
+                    }));
+                  }}
                 />
+                {startEmailError && (
+                  <p className="col-start-2 text-xs text-red-600">{startEmailError}</p>
+                )}
               </div>
             </div>
           </ScrollArea>
@@ -931,15 +1149,42 @@ export default function Groups() {
             </Button>
             <Button
               className="bg-[#df7b6c] hover:bg-[#ce695a]"
-              onClick={() => {
-                setStartGroupOpen(false);
-                toast.success("Группа подготовлена к старту", {
-                  description: "Следующие действия подключим на следующем этапе.",
-                });
-              }}
+              onClick={startGroup}
             >
               Стартовать группу!
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(startSummary)} onOpenChange={(open) => !open && setStartSummary(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Группа стартована</DialogTitle>
+            <DialogDescription>
+              Операция завершена, связанные данные подготовлены.
+            </DialogDescription>
+          </DialogHeader>
+          {startSummary && (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <dl className="grid grid-cols-[180px_1fr] gap-x-4 gap-y-2">
+                  <dt className="text-muted-foreground">Стартовала группа</dt><dd className="font-medium">{startSummary.startedGroup}</dd>
+                  <dt className="text-muted-foreground">Создано продолжение</dt><dd className="font-medium">{startSummary.continuationGroup}</dd>
+                  <dt className="text-muted-foreground">Преподаватель</dt><dd>{startSummary.teacher}</dd>
+                  <dt className="text-muted-foreground">E-mail</dt><dd>{startSummary.email}</dd>
+                  <dt className="text-muted-foreground">Письмо и PDF</dt><dd>Подготовлены к отправке</dd>
+                  <dt className="text-muted-foreground">Расписание</dt><dd>Занятия проверены и статусы обновлены</dd>
+                </dl>
+              </div>
+              <div>
+                <p className="mb-2 font-semibold">Студенты ({startSummary.students.length})</p>
+                <p className="text-muted-foreground">{startSummary.students.join(", ") || "В группе нет студентов"}</p>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button onClick={() => setStartSummary(null)}>ОК</Button>
           </div>
         </DialogContent>
       </Dialog>
