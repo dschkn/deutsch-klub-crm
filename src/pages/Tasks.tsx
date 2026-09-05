@@ -1,5 +1,5 @@
 import { type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, format, isBefore, isSameDay, parseISO } from 'date-fns';
+import { addDays, differenceInCalendarDays, format, isBefore, isSameDay, parseISO, startOfDay } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import {
   CalendarDays,
@@ -37,9 +37,13 @@ import {
   getNextShift,
   getShift,
 } from '../data/demoAdministrators';
+import { importedStudents } from '../data/importedStudents';
+import { realGroups, type RealGroup } from '../data/realGroups';
 import { cn } from '../lib/utils';
 
 const STORAGE_KEY = 'dk-admin-kanban-v1';
+const GROUPS_STORAGE_KEY = 'dk-groups-workspace-v2';
+const STARTED_GROUPS_STORAGE_KEY = 'dk-started-groups-v1';
 const DEMO_TODAY = parseISO('2026-08-19');
 const DEMO_TODAY_KEY = '2026-08-19';
 
@@ -57,14 +61,109 @@ const statusLabels: Record<DemoTaskStatus, string> = {
   completed: 'Завершена',
 };
 
+type StoredGroupsWorkspace = {
+  rosters?: Record<string, string[]>;
+  paymentMarks?: Record<string, string[]>;
+  groupDrafts?: Record<string, Partial<RealGroup>>;
+  customGroups?: RealGroup[];
+};
+
+function previousOperatingDay(date: Date, steps: number) {
+  const result = startOfDay(date);
+  let remaining = steps;
+  while (remaining > 0) {
+    result.setDate(result.getDate() - 1);
+    if (result.getDay() !== 0) remaining -= 1;
+  }
+  return result;
+}
+
+function automaticStartTask(group: RealGroup, workspace: StoredGroupsWorkspace): DemoBoardTask {
+  const studentIds = workspace.rosters?.[group.id] ?? group.studentIds;
+  const studentMap = new Map(importedStudents.map((student) => [student.id, student]));
+  const paidCount = studentIds.filter((studentId) => {
+    const marks = workspace.paymentMarks?.[`${group.id}:${studentId}`];
+    return marks ? marks.includes('paid') : studentMap.get(studentId)?.paymentStatus === 'paid';
+  }).length;
+  const studyingCount = studentIds.filter((studentId) => {
+    const marks = workspace.paymentMarks?.[`${group.id}:${studentId}`];
+    return marks ? marks.includes('studying') : true;
+  }).length;
+  const startDate = new Date(group.startDate);
+  const startDateLabel = format(startDate, 'dd.MM.yyyy');
+  const weekday = format(startDate, 'EEEE', { locale: ru });
+  const paymentCheckDate = format(previousOperatingDay(startDate, 3), 'dd.MM');
+  const launchDecisionDate = format(previousOperatingDay(startDate, 2), 'dd.MM');
+  const finalCheckDate = format(previousOperatingDay(startDate, 1), 'dd.MM');
+
+  return {
+    id: `auto-group-start-${group.id}`,
+    title: `Подготовить запуск группы №${group.code}`,
+    description: [
+      `Группа: ${group.name} №${group.code}.`,
+      `Старт: ${startDateLabel}, ${weekday}.`,
+      `Преподаватель: ${group.teacherName || 'не назначен'}.`,
+      `Студенты: ${studentIds.length}; отмечены «Учится»: ${studyingCount}; оплачено: ${paidCount}.`,
+      '',
+      'Правила запуска:',
+      '• Стандартный старт — в запланированный день при достаточном количестве оплат.',
+      '• Ранний старт — при 3–4 оплатах сообщить преподавателю о старте за 2–4 дня до занятия.',
+      '• Тяжёлый старт — при менее чем 3 оплатах группу переносим.',
+      '• При нехватке оплат обязательно искать студентов в других группах и заявках и заранее принять решение о переносе.',
+    ].join('\n'),
+    assigneeId: null,
+    dueDate: format(startDate, 'yyyy-MM-dd'),
+    priority: 'high',
+    status: 'new',
+    tags: ['Авто', 'Запуск группы', `№${group.code}`],
+    subtasks: [
+      { id: `auto-${group.id}-payments`, title: `${paymentCheckDate} — контроль оплат и опрос студентов`, completed: false },
+      { id: `auto-${group.id}-decision`, title: `${launchDecisionDate} — подтвердить запуск или принять решение о переносе`, completed: false },
+      { id: `auto-${group.id}-final`, title: `${finalCheckDate} — финальная проверка старта`, completed: false },
+      { id: `auto-${group.id}-statuses`, title: 'Проверить, что все участники отмечены «Учится» и «Оплачено»', completed: false },
+      { id: `auto-${group.id}-scenario`, title: 'Определить сценарий запуска: стандартный, ранний или перенос', completed: false },
+      { id: `auto-${group.id}-recruit`, title: 'При нехватке оплат найти студентов в других группах и заявках', completed: false },
+      { id: `auto-${group.id}-teacher`, title: 'Подготовить сообщение преподавателю и проверить его e-mail', completed: false },
+    ],
+    comments: [],
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function addAutomaticStartTasks(tasks: DemoBoardTask[]): DemoBoardTask[] {
+  try {
+    const workspace = JSON.parse(window.localStorage.getItem(GROUPS_STORAGE_KEY) || '{}') as StoredGroupsWorkspace;
+    const startedGroups = JSON.parse(window.localStorage.getItem(STARTED_GROUPS_STORAGE_KEY) || '{}') as Record<string, unknown>;
+    const today = startOfDay(new Date());
+    const groups = [...realGroups, ...(workspace.customGroups || [])].map((group) => ({
+      ...group,
+      ...workspace.groupDrafts?.[group.id],
+      studentIds: workspace.rosters?.[group.id] ?? group.studentIds,
+    }));
+
+    const automaticTasks = groups
+      .filter((group) => {
+        const daysUntilStart = differenceInCalendarDays(startOfDay(new Date(group.startDate)), today);
+        return group.status !== 'completed' && !startedGroups[group.id] && daysUntilStart >= 0 && daysUntilStart <= 7;
+      })
+      .filter((group, index, values) => values.findIndex((item) => item.id === group.id) === index)
+      .map((group) => automaticStartTask(group, workspace));
+
+    const existingIds = new Set(tasks.map((task) => task.id));
+    return [...automaticTasks.filter((task) => !existingIds.has(task.id)), ...tasks];
+  } catch {
+    return tasks;
+  }
+}
+
 function loadTasks(): DemoBoardTask[] {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) return demoAdminTasks;
+    if (!saved) return addAutomaticStartTasks(demoAdminTasks);
     const parsed: unknown = JSON.parse(saved);
-    return Array.isArray(parsed) ? parsed as DemoBoardTask[] : demoAdminTasks;
+    return addAutomaticStartTasks(Array.isArray(parsed) ? parsed as DemoBoardTask[] : demoAdminTasks);
   } catch {
-    return demoAdminTasks;
+    return addAutomaticStartTasks(demoAdminTasks);
   }
 }
 
