@@ -274,6 +274,7 @@ export default function Groups() {
     teacherEmail: "",
   });
   const [startEmailError, setStartEmailError] = useState("");
+  const [startValidationErrors, setStartValidationErrors] = useState<string[]>([]);
   const [startSummary, setStartSummary] = useState<{
     startedGroup: string;
     continuationGroup: string;
@@ -416,13 +417,50 @@ export default function Groups() {
       teacherEmail: "",
     });
     setStartEmailError("");
+    setStartValidationErrors([]);
     setStartGroupOpen(true);
   };
 
   const startGroup = () => {
     if (!selected) return;
-    if (!startGroupForm.teacherEmail.includes("@")) {
+    const validationErrors: string[] = [];
+    const teacherMessage = startGroupForm.teacherMessage.trim();
+    const teacherEmail = startGroupForm.teacherEmail.trim();
+
+    roster.forEach((student) => {
+      const marks = workspace.paymentMarks[`${selected.id}:${student.id}`];
+      const isStudying = marks ? marks.includes("studying") : true;
+      const isPaid = marks
+        ? marks.includes("paid")
+        : student.paymentStatus === "paid";
+
+      if (!isPaid) {
+        validationErrors.push(
+          `Студент ${student.name} ещё не оплатил курс или не отмечен в CRM как «Оплачено».`,
+        );
+      }
+      if (!isStudying) {
+        validationErrors.push(
+          `Студент ${student.name} не отмечен в CRM как «Учится».`,
+        );
+      }
+    });
+
+    if (!teacherMessage) {
+      validationErrors.push("Поле «Сообщение преподавателю» не должно быть пустым.");
+    }
+    if (!teacherEmail) {
+      validationErrors.push("Поле «E-mail преподавателя» не должно быть пустым.");
+      setStartEmailError("Укажите e-mail преподавателя");
+    } else if (!teacherEmail.includes("@")) {
+      validationErrors.push("E-mail преподавателя должен содержать @.");
       setStartEmailError("Укажите корректный e-mail: адрес должен содержать @");
+    } else {
+      setStartEmailError("");
+    }
+
+    setStartValidationErrors(validationErrors);
+    if (validationErrors.length) {
       return;
     }
 
@@ -507,8 +545,8 @@ export default function Groups() {
         {
           id: `teacher-mail-${Date.now()}`,
           groupId: selected.id,
-          to: startGroupForm.teacherEmail,
-          message: startGroupForm.teacherMessage,
+          to: teacherEmail,
+          message: teacherMessage,
           attachment: "group-students-and-lessons.pdf",
           status: "prepared",
           createdAt: new Date().toISOString(),
@@ -522,7 +560,7 @@ export default function Groups() {
       startedGroup: getGroupTitle(selected),
       continuationGroup: groupTitle(continuation, 0, continuation.studentIds.length),
       teacher: selected.teacherName,
-      email: startGroupForm.teacherEmail,
+      email: teacherEmail,
       students: roster.map((student) => student.name),
     });
   };
@@ -1152,16 +1190,27 @@ export default function Groups() {
               </div>
             </div>
           </ScrollArea>
-          <div className="flex justify-end gap-2 border-t px-5 py-3">
-            <Button variant="outline" onClick={() => setStartGroupOpen(false)}>
-              Отмена
-            </Button>
-            <Button
-              className="bg-[#df7b6c] hover:bg-[#ce695a]"
-              onClick={startGroup}
-            >
-              Стартовать группу!
-            </Button>
+          <div className="flex items-end justify-between gap-4 border-t px-5 py-3">
+            <div className="min-w-0 flex-1" role="alert" aria-live="polite">
+              {startValidationErrors.length > 0 && (
+                <div className="max-h-28 space-y-1 overflow-y-auto text-sm text-red-600">
+                  {startValidationErrors.map((error) => (
+                    <p key={error}>{error}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button variant="outline" onClick={() => setStartGroupOpen(false)}>
+                Отмена
+              </Button>
+              <Button
+                className="bg-[#df7b6c] hover:bg-[#ce695a]"
+                onClick={startGroup}
+              >
+                Стартовать группу!
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
