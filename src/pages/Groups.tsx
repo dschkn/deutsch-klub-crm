@@ -281,6 +281,13 @@ export default function Groups() {
     email: string;
     students: string[];
   } | null>(null);
+  const [startedGroupIds, setStartedGroupIds] = useState<Set<string>>(() => {
+    try {
+      return new Set(Object.keys(JSON.parse(localStorage.getItem(STARTED_GROUPS_KEY) || "{}")));
+    } catch {
+      return new Set();
+    }
+  });
   const [studentForm, setStudentForm] = useState({
     firstName: "",
     lastName: "",
@@ -491,6 +498,7 @@ export default function Groups() {
         },
       }),
     );
+    setStartedGroupIds((current) => new Set(current).add(selected.id));
 
     const outbox = JSON.parse(localStorage.getItem("dk-teacher-mail-outbox-v1") || "[]");
     localStorage.setItem(
@@ -791,7 +799,8 @@ export default function Groups() {
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Button
                           size="sm"
-                          className="h-8 gap-1.5 bg-[#df7b6c] px-3 text-xs hover:bg-[#ce695a]"
+                          disabled={startedGroupIds.has(selected.id)}
+                          className="h-8 gap-1.5 bg-[#df7b6c] px-3 text-xs hover:bg-[#ce695a] disabled:bg-muted disabled:text-muted-foreground disabled:hover:bg-muted"
                           onClick={openStartGroup}
                         >
                           <Rocket className="h-3.5 w-3.5" />
