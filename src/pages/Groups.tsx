@@ -275,6 +275,9 @@ export default function Groups() {
   });
   const [startEmailError, setStartEmailError] = useState("");
   const [startValidationErrors, setStartValidationErrors] = useState<string[]>([]);
+  const [cancelGroupOpen, setCancelGroupOpen] = useState(false);
+  const [cancelGroupForm, setCancelGroupForm] = useState({ teacherMessage: "", teacherEmail: "" });
+  const [cancelEmailError, setCancelEmailError] = useState("");
   const [startSummary, setStartSummary] = useState<{
     startedGroup: string;
     continuationGroup: string;
@@ -421,6 +424,18 @@ export default function Groups() {
     setStartGroupOpen(true);
   };
 
+  const openCancelGroup = () => {
+    if (!selected) return;
+    const teacherParts = selected.teacherName.trim().split(/\s+/);
+    const teacherFirstName = teacherParts[1] || teacherParts[0] || "коллега";
+    setCancelGroupForm({
+      teacherMessage: `Привет, ${teacherFirstName}! Группу ${getGroupTitle(selected)} запустили по ошибке. Ниже прилагаю обновлённые сведения.`,
+      teacherEmail: "",
+    });
+    setCancelEmailError("");
+    setCancelGroupOpen(true);
+  };
+
   const startGroup = () => {
     if (!selected) return;
     const validationErrors: string[] = [];
@@ -521,6 +536,15 @@ export default function Groups() {
             previousId: selected.id,
           },
         },
+        groupComments: {
+          ...current.groupComments,
+          [selected.id]: [{
+            id: `group-start-${Date.now()}`,
+            text: `Группа ${selected.name} стартована\n\nстарт+, тг+, расп+, прод+`,
+            author: "Демо-директор",
+            createdAt: new Date().toISOString(),
+          }, ...(current.groupComments[selected.id] || [])],
+        },
       };
     });
 
@@ -533,6 +557,7 @@ export default function Groups() {
           startedAt: new Date().toISOString(),
           firstLessonDate: format(new Date(selected.startDate), "yyyy-MM-dd"),
           format: groupFormat(selected) === "ОН" ? "online" : "offline",
+          originalStatus: selected.status,
         },
       }),
     );
@@ -563,6 +588,82 @@ export default function Groups() {
       email: teacherEmail,
       students: roster.map((student) => student.name),
     });
+  };
+
+  const cancelGroupStart = () => {
+    if (!selected) return;
+    const teacherEmail = cancelGroupForm.teacherEmail.trim();
+    const teacherMessage = cancelGroupForm.teacherMessage.trim();
+    if (teacherEmail && !teacherEmail.includes("@")) {
+      setCancelEmailError("Укажите корректный e-mail: адрес должен содержать @");
+      return;
+    }
+    if (teacherMessage && !teacherEmail) {
+      setCancelEmailError("Укажите e-mail преподавателя или очистите текст письма");
+      return;
+    }
+
+    const startedGroups = JSON.parse(localStorage.getItem(STARTED_GROUPS_KEY) || "{}");
+    const launchData = startedGroups[selected.id] || {};
+    const continuationId = workspace.groupLinks[selected.id]?.nextId;
+    setWorkspace((current) => {
+      const paymentMarks = Object.fromEntries(Object.entries(current.paymentMarks).filter(
+        ([key]) => !continuationId || !key.startsWith(`${continuationId}:`),
+      ));
+      const groupLinks = { ...current.groupLinks };
+      const selectedLink = groupLinks[selected.id];
+      if (selectedLink) groupLinks[selected.id] = { previousId: selectedLink.previousId };
+      if (continuationId) delete groupLinks[continuationId];
+      const rosters = { ...current.rosters };
+      const groupDrafts = { ...current.groupDrafts };
+      const groupComments = { ...current.groupComments };
+      if (continuationId) {
+        delete rosters[continuationId];
+        delete groupDrafts[continuationId];
+        delete groupComments[continuationId];
+      }
+      return {
+        ...current,
+        customGroups: (current.customGroups || []).filter((group) => group.id !== continuationId),
+        groupDrafts: {
+          ...groupDrafts,
+          [selected.id]: { ...groupDrafts[selected.id], status: launchData.originalStatus || "planned" },
+        },
+        rosters,
+        paymentMarks,
+        groupComments: {
+          ...groupComments,
+          [selected.id]: [{
+            id: `group-start-cancel-${Date.now()}`,
+            text: `Старт группы ${selected.name} отменён\n\nстарт−, расп−, прод−`,
+            author: "Демо-директор",
+            createdAt: new Date().toISOString(),
+          }, ...(groupComments[selected.id] || [])],
+        },
+        groupLinks,
+      };
+    });
+    delete startedGroups[selected.id];
+    localStorage.setItem(STARTED_GROUPS_KEY, JSON.stringify(startedGroups));
+    setStartedGroupIds((current) => {
+      const next = new Set(current);
+      next.delete(selected.id);
+      return next;
+    });
+    if (teacherEmail && teacherMessage) {
+      const outbox = JSON.parse(localStorage.getItem("dk-teacher-mail-outbox-v1") || "[]");
+      localStorage.setItem("dk-teacher-mail-outbox-v1", JSON.stringify([{
+        id: `teacher-cancel-mail-${Date.now()}`,
+        groupId: selected.id,
+        to: teacherEmail,
+        message: teacherMessage,
+        attachment: "updated-group-information.pdf",
+        status: "prepared",
+        createdAt: new Date().toISOString(),
+      }, ...outbox]));
+    }
+    setCancelGroupOpen(false);
+    toast.success("Старт группы отменён, расписание восстановлено");
   };
 
   const openEdit = () => {
@@ -837,12 +938,11 @@ export default function Groups() {
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Button
                           size="sm"
-                          disabled={startedGroupIds.has(selected.id)}
-                          className="h-8 gap-1.5 bg-[#df7b6c] px-3 text-xs hover:bg-[#ce695a] disabled:bg-muted disabled:text-muted-foreground disabled:hover:bg-muted"
-                          onClick={openStartGroup}
+                          className={cn("h-8 gap-1.5 px-3 text-xs", startedGroupIds.has(selected.id) ? "bg-slate-400 text-white hover:bg-slate-500" : "bg-[#df7b6c] hover:bg-[#ce695a]")}
+                          onClick={startedGroupIds.has(selected.id) ? openCancelGroup : openStartGroup}
                         >
                           <Rocket className="h-3.5 w-3.5" />
-                          Стартовать группу
+                          {startedGroupIds.has(selected.id) ? "Отменить старт группы" : "Стартовать группу"}
                         </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1210,6 +1310,40 @@ export default function Groups() {
               >
                 Стартовать группу!
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={cancelGroupOpen} onOpenChange={setCancelGroupOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Вы уверены, что хотите отменить старт группы? Проверьте себя!</DialogTitle>
+            <DialogDescription>Это действие вернёт группу в состояние формирования.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 text-sm">
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <p className="mb-2 font-medium">После подтверждения:</p>
+              <ul className="list-disc space-y-1.5 pl-5 text-muted-foreground">
+                <li>группа снова будет отмечена как не стартованная;</li>
+                <li>автоматически созданная группа продолжения будет удалена;</li>
+                <li>связь с продолжением будет удалена;</li>
+                <li>занятия вернутся к оформлению периода формирования;</li>
+                <li>в комментариях появится запись об отмене старта.</li>
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <Label>Сообщение преподавателю (необязательно)</Label>
+              <Textarea className="min-h-28" value={cancelGroupForm.teacherMessage} onChange={(event) => setCancelGroupForm((current) => ({ ...current, teacherMessage: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>E-mail преподавателя</Label>
+              <Input type="email" aria-invalid={Boolean(cancelEmailError)} className={cn(cancelEmailError && "border-red-500 focus-visible:ring-red-500")} value={cancelGroupForm.teacherEmail} onChange={(event) => { setCancelEmailError(""); setCancelGroupForm((current) => ({ ...current, teacherEmail: event.target.value })); }} placeholder="Можно оставить пустым, если письмо не требуется" />
+              {cancelEmailError && <p className="text-xs text-red-600">{cancelEmailError}</p>}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCancelGroupOpen(false)}>Не отменять</Button>
+              <Button className="bg-slate-600 hover:bg-slate-700" onClick={cancelGroupStart}>Отменить старт группы</Button>
             </div>
           </div>
         </DialogContent>
