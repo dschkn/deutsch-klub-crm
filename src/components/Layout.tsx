@@ -148,6 +148,7 @@ const roleLabels: Record<string, string> = {
 };
 
 export function Header({ sidebarCollapsed }: HeaderProps) {
+  const location = useLocation();
   const { user, logout } = useCurrentUser();
   const navigate = useNavigate();
   const { query, results, isOpen, handleQueryChange, selectResult, close } = useGlobalSearch();
@@ -161,6 +162,8 @@ export function Header({ sidebarCollapsed }: HeaderProps) {
     group: GroupIcon,
     teacher: TeacherIcon,
   };
+
+  if (location.pathname.startsWith('/tasks')) return null;
 
   return (
     <header
@@ -255,6 +258,8 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const location = useLocation();
+  const isTasksPage = location.pathname.startsWith('/tasks');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-muted/30 via-background to-muted/30">
@@ -262,7 +267,8 @@ export default function Layout({ children }: LayoutProps) {
       <Header sidebarCollapsed={sidebarCollapsed} />
       <main
         className={cn(
-          'pt-16 transition-[margin-left] duration-300 will-change-[margin-left]',
+          'transition-[margin-left,padding-top] duration-300 will-change-[margin-left]',
+          isTasksPage ? 'pt-0' : 'pt-16',
           sidebarCollapsed ? 'ml-16' : 'ml-60'
         )}
       >
