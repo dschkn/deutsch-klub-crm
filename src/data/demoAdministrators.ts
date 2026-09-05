@@ -42,6 +42,7 @@ export interface DemoBoardTask {
   subtasks: DemoSubtask[];
   comments: DemoTaskComment[];
   createdAt: string;
+  completedAt?: string;
 }
 
 export const demoAdministrators: DemoAdministrator[] = [
