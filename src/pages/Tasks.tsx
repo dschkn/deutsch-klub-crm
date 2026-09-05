@@ -1,4 +1,4 @@
-import { type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type DragEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, format, isBefore, isSameDay, parseISO, startOfDay } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import {
@@ -6,28 +6,38 @@ import {
   Check,
   Clock3,
   Flame,
+  FolderCog,
   GripVertical,
+  LayoutDashboard,
+  List,
   ListChecks,
   MessageSquare,
   Plus,
+  Printer,
+  RotateCcw,
   Search,
   Send,
+  Settings,
   Tag,
   Trash2,
   UserRound,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Checkbox } from '../components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Separator } from '../components/ui/separator';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { Textarea } from '../components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import {
   demoAdministrators,
   demoAdminTasks,
@@ -42,6 +52,7 @@ import { realGroups, type RealGroup } from '../data/realGroups';
 import { cn } from '../lib/utils';
 
 const STORAGE_KEY = 'dk-admin-kanban-v1';
+const TRASH_STORAGE_KEY = 'dk-admin-kanban-trash-v1';
 const GROUPS_STORAGE_KEY = 'dk-groups-workspace-v2';
 const TODAY = startOfDay(new Date());
 const TODAY_KEY = format(TODAY, 'yyyy-MM-dd');
@@ -213,11 +224,24 @@ function addDailyRegulationTasks(tasks: DemoBoardTask[]): DemoBoardTask[] {
 function loadTasks(): DemoBoardTask[] {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) return addDailyRegulationTasks(demoAdminTasks);
+    if (!saved) return addDailyRegulationTasks([]);
     const parsed: unknown = JSON.parse(saved);
-    return addDailyRegulationTasks(Array.isArray(parsed) ? parsed as DemoBoardTask[] : demoAdminTasks);
+    const demoIds = new Set(demoAdminTasks.map((task) => task.id));
+    const realTasks = Array.isArray(parsed)
+      ? (parsed as DemoBoardTask[]).filter((task) => !demoIds.has(task.id))
+      : [];
+    return addDailyRegulationTasks(realTasks);
   } catch {
-    return addDailyRegulationTasks(demoAdminTasks);
+    return addDailyRegulationTasks([]);
+  }
+}
+
+function loadTrash(): DemoBoardTask[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(TRASH_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed as DemoBoardTask[] : [];
+  } catch {
+    return [];
   }
 }
 
@@ -238,18 +262,27 @@ function shiftLabel(adminId: string) {
 
 export default function Tasks() {
   const [tasks, setTasks] = useState<DemoBoardTask[]>(loadTasks);
+  const [trash, setTrash] = useState<DemoBoardTask[]>(loadTrash);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'board' | 'list' | 'calendar'>('board');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [createFor, setCreateFor] = useState<string | null | undefined>(undefined);
   const [query, setQuery] = useState('');
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const draggedRef = useRef(false);
-  const [newTask, setNewTask] = useState({ title: '', description: '', dueDate: '2026-08-21', priority: 'medium' as DemoTaskPriority, assigneeId: 'unassigned' });
+  const [newTask, setNewTask] = useState({ title: '', description: '', dueDate: TODAY_KEY, priority: 'medium' as DemoTaskPriority, assigneeId: 'unassigned' });
   const [newSubtask, setNewSubtask] = useState('');
   const [newComment, setNewComment] = useState('');
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false });
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
   }, [tasks]);
+
+  useEffect(() => {
+    window.localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(trash));
+  }, [trash]);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const normalizedQuery = query.trim().toLowerCase();
@@ -267,6 +300,22 @@ export default function Tasks() {
     setTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...patch } : task));
   };
 
+  const completeTask = (taskId: string) => {
+    updateTask(taskId, { status: 'completed', completedAt: new Date().toISOString() });
+  };
+
+  const deleteTask = (task: DemoBoardTask) => {
+    setTrash((current) => [{ ...task }, ...current.filter((item) => item.id !== task.id)]);
+    setTasks((current) => current.filter((item) => item.id !== task.id));
+    setSelectedTaskId(null);
+    toast.success('Задача перемещена в корзину');
+  };
+
+  const restoreTask = (task: DemoBoardTask) => {
+    setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
+    setTrash((current) => current.filter((item) => item.id !== task.id));
+  };
+
   const handleDragStart = (event: DragEvent, taskId: string) => {
     draggedRef.current = true;
     event.dataTransfer.effectAllowed = 'move';
@@ -282,7 +331,7 @@ export default function Tasks() {
   };
 
   const openCreate = (assigneeId: string | null) => {
-    setNewTask({ title: '', description: '', dueDate: '2026-08-21', priority: 'medium', assigneeId: assigneeId ?? 'unassigned' });
+    setNewTask({ title: '', description: '', dueDate: TODAY_KEY, priority: 'medium', assigneeId: assigneeId ?? 'unassigned' });
     setCreateFor(assigneeId);
   };
 
@@ -318,26 +367,85 @@ export default function Tasks() {
   };
 
   const columns = [{ id: 'unassigned', name: 'Неразобранное', assigneeId: null as string | null }, ...demoAdministrators.map((admin) => ({ id: admin.id, name: admin.shortName, assigneeId: admin.id }))];
-  const completedCount = tasks.filter((task) => task.status === 'completed').length;
+  const completedTodayCount = tasks.filter((task) => task.status === 'completed' && format(parseISO(task.completedAt || `${task.dueDate}T12:00:00`), 'yyyy-MM-dd') === TODAY_KEY).length;
+  const monthStart = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+  const daysInMonth = new Date(TODAY.getFullYear(), TODAY.getMonth() + 1, 0).getDate();
+  const calendarLeadingCells = monthStart.getDay() === 0 ? 0 : monthStart.getDay() - 1;
+  const calendarDays = Array.from({ length: daysInMonth }, (_, index) => new Date(TODAY.getFullYear(), TODAY.getMonth(), index + 1)).filter((date) => date.getDay() !== 0);
+
+  const handleBoardPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest('[data-no-board-pan]')) return;
+    const board = boardScrollRef.current;
+    if (!board) return;
+    panRef.current = { active: true, startX: event.clientX, scrollLeft: board.scrollLeft, moved: false };
+    board.setPointerCapture(event.pointerId);
+    board.classList.add('cursor-grabbing');
+  };
+
+  const handleBoardPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const board = boardScrollRef.current;
+    if (!board || !panRef.current.active) return;
+    const distance = event.clientX - panRef.current.startX;
+    if (Math.abs(distance) > 4) panRef.current.moved = true;
+    board.scrollLeft = panRef.current.scrollLeft - distance;
+  };
+
+  const stopBoardPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const board = boardScrollRef.current;
+    panRef.current.active = false;
+    if (board?.hasPointerCapture(event.pointerId)) board.releasePointerCapture(event.pointerId);
+    board?.classList.remove('cursor-grabbing');
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+    <div className="-m-4 min-h-[calc(100vh-4rem)] overflow-hidden bg-[radial-gradient(circle_at_18%_15%,rgba(204,235,221,0.95),transparent_34%),radial-gradient(circle_at_82%_12%,rgba(221,231,246,0.9),transparent_35%),linear-gradient(155deg,#edf4ef_0%,#dce9e1_45%,#c9d9d2_100%)] p-4 md:-m-6 md:p-6">
+      <div className="mb-4 flex flex-col gap-3 rounded-xl border border-white/70 bg-white/75 p-4 shadow-sm backdrop-blur-md xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Задачи администраторов</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Все сотрудники остаются на доске — задачу можно поставить и на будущую смену.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Рабочая доска команды</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[240px] flex-1 xl:w-[300px] xl:flex-none">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по задачам…" className="h-9 pl-9" />
           </div>
-          <Badge variant="outline" className="h-9 px-3 font-normal">Завершено: {completedCount}</Badge>
+          <TooltipProvider delayDuration={250}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="h-9 cursor-help bg-white/80 px-3 font-normal">Завершено сегодня: {completedTodayCount}</Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[310px] bg-zinc-800 px-3 py-2 leading-relaxed text-white" side="bottom">
+                Количество задач, которым сегодня поставили статус «Завершено». Здесь учитываются все сотрудники доски.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Button className="h-9 gap-2" onClick={() => openCreate(null)}><Plus className="h-4 w-4" />Новая задача</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button variant="outline" size="icon" className="h-9 w-9 bg-white/80" aria-label="Настройки доски"><Settings className="h-4 w-4" /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>Вид отображения задач</DropdownMenuLabel>
+              <div className="grid grid-cols-3 gap-2 p-2 pt-0">
+                <Button variant={viewMode === 'board' ? 'default' : 'outline'} className="h-auto flex-col gap-1 py-3" onClick={() => setViewMode('board')}><LayoutDashboard className="h-5 w-5" /><span className="text-xs">Доска</span></Button>
+                <Button variant={viewMode === 'list' ? 'default' : 'outline'} className="h-auto flex-col gap-1 py-3" onClick={() => setViewMode('list')}><List className="h-5 w-5" /><span className="text-xs">Список</span></Button>
+                <Button variant={viewMode === 'calendar' ? 'default' : 'outline'} className="h-auto flex-col gap-1 py-3" onClick={() => setViewMode('calendar')}><CalendarDays className="h-5 w-5" /><span className="text-xs">Календарь</span></Button>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => toast.info('Настройки проекта реализуем на следующем этапе')}><FolderCog className="mr-2 h-4 w-4" />Настройки проекта</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => toast.info('Печать доски реализуем позже')}><Printer className="mr-2 h-4 w-4" />Распечатать доску</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setTrashOpen(true)}><Trash2 className="mr-2 h-4 w-4" />Корзина задач <span className="ml-auto text-xs text-muted-foreground">{trash.length}</span></DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      <div className="-mx-1 overflow-x-auto px-1 pb-3">
+      {viewMode === 'board' ? <div
+        ref={boardScrollRef}
+        className="-mx-1 min-h-[calc(100vh-10rem)] cursor-grab overflow-x-auto px-1 pb-3 select-none"
+        onPointerDown={handleBoardPointerDown}
+        onPointerMove={handleBoardPointerMove}
+        onPointerUp={stopBoardPan}
+        onPointerCancel={stopBoardPan}
+      >
         <div className="flex min-w-max items-start gap-3">
           {columns.map((column) => {
             const admin = demoAdministrators.find((item) => item.id === column.assigneeId);
@@ -346,6 +454,7 @@ export default function Tasks() {
             return (
               <section
                 key={column.id}
+                data-no-board-pan
                 className={cn('w-[286px] flex-none rounded-xl border p-2 transition-all', admin?.columnTone ?? 'bg-amber-50/80', isDragTarget && 'border-primary ring-2 ring-primary/20')}
                 onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverColumn(column.id); }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverColumn(null); }}
@@ -399,7 +508,61 @@ export default function Tasks() {
             );
           })}
         </div>
-      </div>
+      </div> : viewMode === 'list' ? (
+        <div className="min-h-[calc(100vh-10rem)] overflow-hidden rounded-xl border border-white/70 bg-white/85 shadow-sm backdrop-blur-md">
+          {columns.map((column) => {
+            const columnTasks = tasksFor(column.assigneeId);
+            if (!columnTasks.length) return null;
+            return (
+              <section key={column.id} className="border-b last:border-b-0">
+                <div className="flex items-center justify-between bg-muted/40 px-5 py-3">
+                  <h2 className="font-semibold">{column.name}</h2>
+                  <Badge variant="outline" className="bg-white">{columnTasks.length}</Badge>
+                </div>
+                <div>
+                  {columnTasks.map((task) => {
+                    const due = dueDateView(task.dueDate);
+                    return (
+                      <div key={task.id} onClick={() => setSelectedTaskId(task.id)} className="grid cursor-pointer grid-cols-[auto_minmax(220px,1fr)_210px_110px] items-center gap-3 border-t px-5 py-3 text-sm transition first:border-t-0 hover:bg-primary/5">
+                        <Checkbox checked={task.status === 'completed'} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => checked && completeTask(task.id)} />
+                        <div className="min-w-0"><p className="truncate font-medium">{task.title}</p><p className="truncate text-xs text-muted-foreground">{task.description}</p></div>
+                        <Select value={task.assigneeId ?? 'unassigned'} onValueChange={(value) => updateTask(task.id, { assigneeId: value === 'unassigned' ? null : value, status: value === 'unassigned' ? 'new' : 'in_progress' })}>
+                          <SelectTrigger className="h-8 bg-white" onClick={(event) => event.stopPropagation()}><SelectValue /></SelectTrigger>
+                          <SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                        <span className={cn('text-right text-xs', due.className)}>{due.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+          {visibleTasks.length === 0 && <div className="flex min-h-[360px] items-center justify-center text-sm text-muted-foreground">Задач пока нет</div>}
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-white/70 bg-white/65 shadow-sm backdrop-blur-sm">
+          <div className="border-b bg-white/80 px-5 py-3 font-semibold">{format(TODAY, 'LLLL yyyy', { locale: ru })}</div>
+          <div className="grid grid-cols-6 border-b bg-white/75 text-xs font-medium text-muted-foreground">
+            {['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'].map((day) => <div key={day} className="border-r px-3 py-2 last:border-r-0">{day}</div>)}
+          </div>
+          <div className="grid min-h-[calc(100vh-14rem)] grid-cols-6 auto-rows-[minmax(150px,1fr)]">
+            {Array.from({ length: calendarLeadingCells }, (_, index) => <div key={`empty-${index}`} className="border-b border-r bg-white/25" />)}
+            {calendarDays.map((date) => {
+              const dateKey = format(date, 'yyyy-MM-dd');
+              const dayTasks = visibleTasks.filter((task) => task.dueDate === dateKey);
+              return (
+                <div key={dateKey} className={cn('border-b border-r p-2 last:border-r-0', dateKey === TODAY_KEY ? 'bg-primary/10' : 'bg-white/30')}>
+                  <div className="mb-2 text-xs text-muted-foreground">{format(date, 'd MMMM', { locale: ru })}</div>
+                  <div className="space-y-1.5">
+                    {dayTasks.map((task) => <button key={task.id} onClick={() => setSelectedTaskId(task.id)} className="block w-full truncate rounded-md border bg-white px-2 py-1.5 text-left text-xs shadow-sm transition hover:border-primary/30 hover:shadow">{task.title}</button>)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <Dialog open={createFor !== undefined} onOpenChange={(open) => { if (!open) setCreateFor(undefined); }}>
         <DialogContent className="max-w-lg">
@@ -417,13 +580,13 @@ export default function Tasks() {
         </DialogContent>
       </Dialog>
 
-      {selectedTask && (
-        <Dialog open onOpenChange={(open) => { if (!open) setSelectedTaskId(null); }}>
-          <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto p-0">
+      <Sheet open={Boolean(selectedTask)} onOpenChange={(open) => { if (!open) setSelectedTaskId(null); }}>
+        {selectedTask && (
+          <SheetContent side="right" overlayClassName="bg-black/10" className="w-[min(680px,94vw)] overflow-y-auto p-0 sm:max-w-none">
             <div className="border-b p-6 pb-4">
-              <DialogHeader>
-                <div className="pr-8"><DialogTitle className="text-xl leading-snug">{selectedTask.title}</DialogTitle><div className="mt-2 flex flex-wrap items-center gap-2"><Badge variant="outline" className={priorityConfig[selectedTask.priority].badge}>{selectedTask.priority === 'urgent' && <Flame className="mr-1 h-3 w-3" />}{priorityConfig[selectedTask.priority].label}</Badge><Badge variant="outline">{statusLabels[selectedTask.status]}</Badge></div></div>
-              </DialogHeader>
+              <SheetHeader>
+                <div className="pr-8"><SheetTitle className="text-xl leading-snug">{selectedTask.title}</SheetTitle><SheetDescription className="sr-only">Подробности и редактирование задачи</SheetDescription><div className="mt-2 flex flex-wrap items-center gap-2"><Badge variant="outline" className={priorityConfig[selectedTask.priority].badge}>{selectedTask.priority === 'urgent' && <Flame className="mr-1 h-3 w-3" />}{priorityConfig[selectedTask.priority].label}</Badge><Badge variant="outline">{statusLabels[selectedTask.status]}</Badge></div></div>
+              </SheetHeader>
             </div>
 
             <div className="space-y-5 p-6 pt-4">
@@ -457,14 +620,31 @@ export default function Tasks() {
               </div>
 
               <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center">
-                <Select value={selectedTask.status} onValueChange={(value) => updateTask(selectedTask.id, { status: value as DemoTaskStatus })}><SelectTrigger className="sm:w-[180px]"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(statusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
-                <Button className="gap-2 sm:ml-auto" onClick={() => updateTask(selectedTask.id, { status: 'completed' })}><Check className="h-4 w-4" />Завершить</Button>
-                <Button variant="destructive" size="icon" aria-label="Удалить задачу" onClick={() => { setTasks((current) => current.filter((task) => task.id !== selectedTask.id)); setSelectedTaskId(null); }}><Trash2 className="h-4 w-4" /></Button>
+                <Select value={selectedTask.status} onValueChange={(value) => updateTask(selectedTask.id, { status: value as DemoTaskStatus, completedAt: value === 'completed' ? new Date().toISOString() : undefined })}><SelectTrigger className="sm:w-[180px]"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(statusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
+                <Button className="gap-2 sm:ml-auto" onClick={() => completeTask(selectedTask.id)}><Check className="h-4 w-4" />Завершить</Button>
+                <Button variant="destructive" size="icon" aria-label="Удалить задачу" onClick={() => deleteTask(selectedTask)}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
-      )}
+          </SheetContent>
+        )}
+      </Sheet>
+
+      <Dialog open={trashOpen} onOpenChange={setTrashOpen}>
+        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Корзина задач</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            {trash.map((task) => (
+              <div key={task.id} className="flex items-center gap-3 rounded-lg border p-3">
+                <Trash2 className="h-4 w-4 flex-none text-muted-foreground" />
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{task.title}</p><p className="text-xs text-muted-foreground">{task.assigneeId ? demoAdministrators.find((admin) => admin.id === task.assigneeId)?.name : 'Без ответственного'}</p></div>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => restoreTask(task)}><RotateCcw className="h-3.5 w-3.5" />Восстановить</Button>
+                <Button variant="ghost" size="icon" aria-label="Удалить окончательно" onClick={() => setTrash((current) => current.filter((item) => item.id !== task.id))}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+              </div>
+            ))}
+            {trash.length === 0 && <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">Корзина пуста</div>}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
