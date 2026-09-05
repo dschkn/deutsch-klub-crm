@@ -32,7 +32,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { ScrollArea } from '../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Separator } from '../components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../components/ui/sheet';
@@ -53,6 +52,11 @@ import { cn } from '../lib/utils';
 const STORAGE_KEY = 'dk-admin-kanban-v1';
 const TRASH_STORAGE_KEY = 'dk-admin-kanban-trash-v1';
 const GROUPS_STORAGE_KEY = 'dk-groups-workspace-v2';
+const motivationalSlogans = {
+  light: ['Спокойный день — работаем в своём ритме!', 'Небольшой список — отличный шанс закрыть всё!', 'Сегодня можно уверенно идти на опережение.', 'Задач немного — доведём каждую до блеска.', 'Лёгкий темп, точный результат.', 'Есть время сделать всё внимательно.', 'Короткий список — чистая победа!', 'Отличный день для порядка и деталей.'],
+  medium: ['Вперёд, команда!', 'Хороший темп — всё под контролем.', 'Разбираем по одной и уверенно движемся дальше.', 'Командный ритм включён!', 'План понятен — пора действовать.', 'Собранность, взаимопомощь, результат.', 'Держим курс и закрываем важное.', 'Сегодня каждый шаг двигает команду вперёд.'],
+  busy: ['День насыщенный — держимся вместе!', 'Задач много, но команда сильнее.', 'Приоритеты ясны — берём высоту поэтапно.', 'Большой список покоряется маленькими шагами.', 'Фокус на главном, остальное — следом.', 'Темп высокий — не забываем помогать друг другу.', 'Собрались, распределились, сделали!', 'Сегодня особенно важны ритм и взаимовыручка.'],
+};
 const TODAY = startOfDay(new Date());
 const TODAY_KEY = format(TODAY, 'yyyy-MM-dd');
 const weekdayGenitive = ['воскресенья', 'понедельника', 'вторника', 'среды', 'четверга', 'пятницы', 'субботы'];
@@ -277,6 +281,7 @@ export default function Tasks() {
   const [newSubtask, setNewSubtask] = useState('');
   const [newComment, setNewComment] = useState('');
   const boardScrollRef = useRef<HTMLDivElement>(null);
+  const boardBackdropRef = useRef<HTMLDivElement>(null);
   const panRef = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false });
 
   useEffect(() => {
@@ -372,6 +377,12 @@ export default function Tasks() {
 
   const columns = [{ id: 'unassigned', name: 'Неразобранное', assigneeId: null as string | null }, ...demoAdministrators.map((admin) => ({ id: admin.id, name: admin.shortName, assigneeId: admin.id }))];
   const completedTodayCount = tasks.filter((task) => task.status === 'completed' && format(parseISO(task.completedAt || `${task.dueDate}T12:00:00`), 'yyyy-MM-dd') === TODAY_KEY).length;
+  const todayTaskCount = tasks.filter((task) => task.status !== 'completed' && task.dueDate === TODAY_KEY).length;
+  const motivation = useMemo(() => {
+    const pool = todayTaskCount <= 3 ? motivationalSlogans.light : todayTaskCount <= 7 ? motivationalSlogans.medium : motivationalSlogans.busy;
+    const seed = Number(format(TODAY, 'yyyyMMdd')) + todayTaskCount;
+    return pool[seed % pool.length];
+  }, [todayTaskCount]);
   const monthStart = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
   const daysInMonth = new Date(TODAY.getFullYear(), TODAY.getMonth() + 1, 0).getDate();
   const calendarLeadingCells = monthStart.getDay() === 0 ? 0 : monthStart.getDay() - 1;
@@ -401,15 +412,23 @@ export default function Tasks() {
     board?.classList.remove('cursor-grabbing');
   };
 
+  const updateBackdropParallax = () => {
+    const board = boardScrollRef.current;
+    const backdrop = boardBackdropRef.current;
+    if (!board || !backdrop) return;
+    backdrop.style.backgroundPosition = `calc(50% + ${board.scrollLeft * 0.08}px) center`;
+  };
+
   return (
     <div
-      className="-m-4 min-h-[calc(100vh-4rem)] overflow-hidden bg-cover bg-center bg-fixed p-4 md:-m-6 md:p-6"
+      ref={boardBackdropRef}
+      className="-m-4 min-h-[calc(100vh-4rem)] overflow-hidden bg-cover bg-center p-4 transition-[background-position] duration-75 md:-m-6 md:p-6"
       style={{ backgroundImage: "linear-gradient(rgba(18, 31, 31, 0.2), rgba(11, 24, 23, 0.34)), url('/tasks-nordic-forest.jpg')" }}
     >
       <div className="mb-4 flex flex-col gap-3 rounded-xl border border-white/25 bg-slate-950/45 p-4 text-white shadow-xl shadow-black/15 backdrop-blur-xl xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Задачи администраторов</h1>
-          <p className="mt-1 text-sm text-white/65">Рабочая доска команды</p>
+          <p className="mt-1 text-sm text-white/75">На сегодня задач: {todayTaskCount}. {motivation}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[240px] flex-1 xl:w-[300px] xl:flex-none">
@@ -452,6 +471,7 @@ export default function Tasks() {
         onPointerMove={handleBoardPointerMove}
         onPointerUp={stopBoardPan}
         onPointerCancel={stopBoardPan}
+        onScroll={updateBackdropParallax}
       >
         <div className="flex min-w-max items-start gap-3">
           {columns.map((column) => {
@@ -478,8 +498,7 @@ export default function Tasks() {
                   </div>
                 </div>
 
-                <ScrollArea className={cn(columnTasks.length ? 'h-[calc(100vh-15rem)] min-h-[500px]' : 'h-auto')}>
-                  <div className="space-y-2 pr-2">
+                  <div className="space-y-2">
                     {columnTasks.map((task) => {
                       const due = dueDateView(task.dueDate);
                       const completedSubtasks = task.subtasks.filter((item) => item.completed).length;
@@ -511,7 +530,6 @@ export default function Tasks() {
                     {columnTasks.length === 0 && <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-current/15 bg-white/30 px-5 text-center text-xs text-muted-foreground">Перетащите задачу в эту колонку</div>}
                     <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground" onClick={() => openCreate(column.assigneeId)}><Plus className="h-4 w-4" />Добавить задачу</Button>
                   </div>
-                </ScrollArea>
               </section>
             );
           })}
