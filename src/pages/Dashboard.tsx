@@ -1,437 +1,83 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { useMemo } from 'react';
+import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
+import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Sparkles, TrendingUp, UserRound, UsersRound } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Button } from '../components/ui/button';
-import {
-  Users,
-  TrendingUp,
-  CreditCard,
-  AlertCircle,
-  Calendar,
-  ArrowUpRight,
-  ArrowDownRight,
-  ArrowRight,
-  BookOpen,
-  Clock,
-  MapPin,
-} from 'lucide-react';
-import {
-  ComposedChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Line,
-  Legend,
-  BarChart,
-} from 'recharts';
-import { getLeadsBySource, getRevenueByMonth, getRetentionData, allStudents, allTasks, allEvents } from '../data/sampleData';
-import { DataStore } from '../data/store';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { demoAdministrators, demoAdminTasks, getShift, type DemoBoardTask } from '../data/demoAdministrators';
+import { importedStudents } from '../data/importedStudents';
+import { useCurrentUser } from '../hooks/use-auth';
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
-const CHART_RESIZE_DEBOUNCE_MS = 120;
+const TASKS_KEY = 'dk-admin-kanban-v1';
+const TODAY = new Date();
+const TODAY_KEY = format(TODAY, 'yyyy-MM-dd');
 
-const leadsBySource = getLeadsBySource();
-const revenueByMonth = getRevenueByMonth();
-const retentionData = getRetentionData();
-const recentStudents = allStudents.slice(0, 5);
-const todayTasks = allTasks.filter(task => task.status !== 'completed').slice(0, 5);
-const upcomingEvents = allEvents.filter(event => event.status === 'registration_open').slice(0, 4);
+function loadTasks(): DemoBoardTask[] {
+  try { return JSON.parse(localStorage.getItem(TASKS_KEY) || 'null') || demoAdminTasks; } catch { return demoAdminTasks; }
+}
 
-const todaySchedule = [
-  { time: '09:00', endTime: '10:30', name: 'Berlin A1', subject: 'Немецкий', room: 'Каб. 1', color: 'blue' },
-  { time: '11:00', endTime: '12:30', name: 'Cambridge B1', subject: 'Английский', room: 'Каб. 2', color: 'emerald' },
-  { time: '18:00', endTime: '19:30', name: 'Munich B2', subject: 'Немецкий', room: 'Онлайн', color: 'slate' },
+const teamSchedule = [
+  { time: '10:00', title: 'Открытый урок немецкого A1', place: 'Кабинет 3' },
+  { time: '15:30', title: 'Разговорный клуб: Berlin', place: 'Большой зал' },
+  { time: '19:00', title: 'Знакомство с преподавателями', place: 'Онлайн' },
 ];
 
-const scheduleColorMap: Record<string, { bg: string; border: string; time: string; timeDark: string }> = {
-  blue: { bg: 'bg-blue-50', border: 'border-blue-100', time: 'text-blue-600', timeDark: 'text-blue-500' },
-  emerald: { bg: 'bg-emerald-50', border: 'border-emerald-100', time: 'text-emerald-600', timeDark: 'text-emerald-500' },
-  slate: { bg: 'bg-slate-50', border: 'border-slate-100', time: 'text-slate-600', timeDark: 'text-slate-500' },
-};
-
 export default function Dashboard() {
-  const store = DataStore.getInstance();
-  const activeStudents = store.getAllStudents().filter(s => s.status === 'active').length;
-  const totalStudents = store.countStudents();
-  const overduePayments = store.getAllPayments().filter(p => p.status === 'overdue').length;
-  const today = new Date();
-  const todayLessons = store.getAllScheduleItems().filter(si => {
-    const d = new Date(si.start);
-    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-  }).length;
-  const newLeadsToday = store.getAllLeads().filter(l => {
-    const created = new Date(l.createdAt);
-    const d = new Date();
-    return created.getFullYear() === d.getFullYear() && created.getMonth() === d.getMonth() && created.getDate() === d.getDate();
-  }).length;
+  const { user, userId } = useCurrentUser();
+  const adminIndex = useMemo(() => {
+    const byName = demoAdministrators.findIndex((admin) => user?.fullName?.includes(admin.shortName));
+    if (byName >= 0) return byName;
+    return [...userId].reduce((sum, char) => sum + char.charCodeAt(0), 0) % demoAdministrators.length;
+  }, [user?.fullName, userId]);
+  const admin = demoAdministrators[adminIndex];
+  const tasks = loadTasks();
+  const personalTasks = tasks.filter((task) => task.status !== 'completed' && task.assigneeId === admin.id).slice(0, 5);
+  const displayedTasks = personalTasks.length ? personalTasks : tasks.filter((task) => task.status !== 'completed').slice(adminIndex * 2, adminIndex * 2 + 4);
+  const attentionClients = importedStudents.slice(adminIndex * 4, adminIndex * 4 + 4);
+  const shift = getShift(admin.id, TODAY_KEY);
+  const firstName = user?.fullName?.split(' ')[1] || user?.fullName?.split(' ')[0] || admin.shortName;
 
-  const kpi = {
-    newLeadsToday: newLeadsToday || allStudents.length > 0 ? Math.min(newLeadsToday || 5, totalStudents) : 5,
-    activeStudents,
-    monthlyRevenue: store.getAllPayments().filter(p => p.status === 'paid').reduce((sum, p) => sum + (p.amount || 0), 0) || 500000,
-    overduePayments,
-    upcomingLessons: todayLessons || 3,
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="tracking-tight">Главная</h1>
-          <p className="text-muted-foreground mt-1">Добро пожаловать, Елена. Вот что происходит сегодня.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" className="gap-2">
-            Скачать отчёт
-          </Button>
-          <Button className="gap-2">
-            <Calendar className="h-4 w-4" />
-            Сегодня
-          </Button>
-        </div>
+  return <div className="min-h-[calc(100vh-8rem)] rounded-[28px] bg-[#f3f2f0] p-5 md:p-7">
+    <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <Badge variant="outline" className="mb-3 rounded-full border-white bg-white/80 px-3 py-1 text-slate-500 shadow-sm">{format(TODAY, 'EEEE, d MMMM', { locale: ru })}</Badge>
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Добрый день, {firstName}</h1>
+        <p className="mt-1 text-sm text-slate-500">Спокойная сводка по вашему дню — важное уже собрано здесь.</p>
       </div>
-
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
-        <Card className="relative overflow-hidden bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg shadow-blue-500/20">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-blue-100">Новые лиды сегодня</p>
-                <p className="text-3xl font-bold mt-1">{kpi.newLeadsToday}</p>
-              </div>
-              <div className="rounded-xl bg-white/20 p-2.5">
-                <Users className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 flex items-center text-sm text-blue-100">
-              <ArrowUpRight className="h-4 w-4 mr-1" />
-              <span>+12% от вчерашнего дня</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-0 shadow-lg shadow-emerald-500/20">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-emerald-100">Активные клиенты</p>
-                <p className="text-3xl font-bold mt-1">{kpi.activeStudents}</p>
-              </div>
-              <div className="rounded-xl bg-white/20 p-2.5">
-                <TrendingUp className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 flex items-center text-sm text-emerald-100">
-              <ArrowUpRight className="h-4 w-4 mr-1" />
-              <span>+8 за неделю</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden bg-gradient-to-br from-amber-500 to-amber-600 text-white border-0 shadow-lg shadow-amber-500/20">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-amber-100">Выручка за месяц</p>
-                <p className="text-3xl font-bold mt-1">€{(kpi.monthlyRevenue / 100).toLocaleString()}</p>
-              </div>
-              <div className="rounded-xl bg-white/20 p-2.5">
-                <CreditCard className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 flex items-center text-sm text-amber-100">
-              <ArrowUpRight className="h-4 w-4 mr-1" />
-              <span>+5% от прошлого месяца</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden bg-gradient-to-br from-red-500 to-red-600 text-white border-0 shadow-lg shadow-red-500/20">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-red-100">Просроченные оплаты</p>
-                <p className="text-3xl font-bold mt-1">{kpi.overduePayments}</p>
-              </div>
-              <div className="rounded-xl bg-white/20 p-2.5">
-                <AlertCircle className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 flex items-center text-sm text-red-100">
-              <ArrowDownRight className="h-4 w-4 mr-1" />
-              <span>Требует внимания</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden bg-gradient-to-br from-slate-700 to-slate-800 text-white border-0 shadow-lg shadow-slate-500/20 col-span-2 lg:col-span-1">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-300">Занятий сегодня</p>
-                <p className="text-3xl font-bold mt-1">{kpi.upcomingLessons}</p>
-              </div>
-              <div className="rounded-xl bg-white/10 p-2.5">
-                <BookOpen className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 flex items-center text-sm text-slate-300">
-              <Clock className="h-4 w-4 mr-1" />
-              <span>3 завершено</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2 bg-card/80 backdrop-blur-sm border-border/60">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base">Выручка по месяцам</CardTitle>
-                <p className="text-sm text-muted-foreground mt-0.5">Динамика выручки и количества клиентов</p>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={280} debounce={CHART_RESIZE_DEBOUNCE_MS}>
-              <ComposedChart data={revenueByMonth}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: '#64748B', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="left" tick={{ fill: '#64748B', fontSize: 12 }} tickFormatter={(v) => `€${v/1000}k`} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fill: '#64748B', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#fff',
-                    border: '1px solid #E2E8F0',
-                    borderRadius: '12px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                  }}
-                />
-                <Legend />
-                <Bar yAxisId="left" dataKey="revenue" name="Выручка" fill="#3B82F6" radius={[6, 6, 0, 0]} isAnimationActive={false} />
-                <Line yAxisId="right" type="monotone" dataKey="students" name="Клиенты" stroke="#10B981" strokeWidth={2} dot={{ fill: '#10B981', r: 4 }} isAnimationActive={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/80 backdrop-blur-sm border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Лиды по источникам</CardTitle>
-            <p className="text-sm text-muted-foreground mt-0.5">Откуда приходят лиды</p>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={200} debounce={CHART_RESIZE_DEBOUNCE_MS}>
-              <PieChart>
-                <Pie
-                  data={leadsBySource}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={3}
-                  dataKey="value"
-                  isAnimationActive={false}
-                >
-                  {leadsBySource.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="grid grid-cols-2 gap-2 text-xs mt-2">
-              {leadsBySource.slice(0, 6).map((item, index) => (
-                <div key={item.name} className="flex items-center gap-2">
-                  <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS[index] }} />
-                  <span className="text-muted-foreground capitalize">{item.name}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2 bg-card/80 backdrop-blur-sm border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Удержание клиентов по уровням</CardTitle>
-            <p className="text-sm text-muted-foreground mt-0.5">Процент клиентов, завершивших каждый уровень</p>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={220} debounce={CHART_RESIZE_DEBOUNCE_MS}>
-              <BarChart data={retentionData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
-                <XAxis type="number" domain={[0, 100]} tick={{ fill: '#64748B', fontSize: 12 }} tickFormatter={(v) => `${v}%`} axisLine={false} tickLine={false} />
-                <YAxis dataKey="name" type="category" tick={{ fill: '#64748B', fontSize: 12 }} width={40} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#fff',
-                    border: '1px solid #E2E8F0',
-                    borderRadius: '12px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                  }}
-                  formatter={(value: number) => [`${value}%`, 'Удержание']}
-                />
-                <Bar dataKey="retention" fill="#3B82F6" radius={[0, 6, 6, 0]} barSize={24} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/80 backdrop-blur-sm border-border/60">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Предстоящие задачи</CardTitle>
-              <Button variant="ghost" size="sm" className="text-muted-foreground text-xs h-7">
-                Все задачи <ArrowRight className="h-3 w-3 ml-1" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {todayTasks.map((task) => (
-                <div key={task.id} className="flex items-start gap-3 rounded-lg bg-muted/80 p-3 border border-border/50">
-                  <div className={`mt-0.5 h-2 w-2 rounded-full flex-shrink-0 ${
-                    task.priority === 'urgent' ? 'bg-red-500' :
-                    task.priority === 'high' ? 'bg-orange-500' :
-                    task.priority === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{task.title}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(task.dueDate).toLocaleDateString('ru-RU')}</p>
-                  </div>
-                  <Avatar className="h-6 w-6 flex-shrink-0">
-                    <AvatarImage src={task.assignee.avatar} />
-                    <AvatarFallback className="text-[10px]">{task.assignee.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                  </Avatar>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="bg-card/80 backdrop-blur-sm border-border/60">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Новые клиенты</CardTitle>
-              <Button variant="ghost" size="sm" className="text-muted-foreground text-xs h-7">
-                Все <ArrowRight className="h-3 w-3 ml-1" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {recentStudents.map((student) => (
-                <div key={student.id} className="flex items-center gap-3">
-                  <Avatar className="h-9 w-9">
-                    <AvatarFallback className="bg-gradient-to-br from-slate-600 to-slate-700 text-white text-sm">
-                      {student.name.split(' ').map(n => n[0]).join('')}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{student.name}</p>
-                    <p className="text-xs text-muted-foreground">{student.language === 'German' ? 'Немецкий' : 'Английский'} - {student.currentLevel}</p>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] ${
-                      student.status === 'active'
-                        ? 'bg-green-50 text-green-700 border-green-200'
-                        : student.status === 'frozen'
-                        ? 'bg-amber-50 text-amber-700 border-amber-200'
-                        : 'bg-slate-50 text-muted-foreground border-border'
-                    }`}
-                  >
-                    {student.status === 'active' ? 'Активен' : student.status === 'frozen' ? 'Заморожен' : 'Неактивен'}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/80 backdrop-blur-sm border-border/60">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Расписание на сегодня</CardTitle>
-              <Button variant="ghost" size="sm" className="text-muted-foreground text-xs h-7">
-                Календарь <ArrowRight className="h-3 w-3 ml-1" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {todaySchedule.map((lesson, index) => {
-                const colors = scheduleColorMap[lesson.color] || scheduleColorMap.slate;
-                return (
-                  <div key={index} className={`flex gap-3 rounded-lg ${colors.bg} border ${colors.border} p-3`}>
-                    <div className="text-center flex-shrink-0 w-14">
-                      <p className={`text-lg font-bold ${colors.time}`}>{lesson.time}</p>
-                      <p className={`text-xs ${colors.timeDark}`}>-{lesson.endTime}</p>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{lesson.name}</p>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <span>{lesson.subject}</span>
-                        <span className="text-slate-300">-</span>
-                        <MapPin className="h-3 w-3" />
-                        <span>{lesson.room}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/80 backdrop-blur-sm border-border/60">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Ближайшие мероприятия</CardTitle>
-              <Button variant="ghost" size="sm" className="text-muted-foreground text-xs h-7">
-                Все <ArrowRight className="h-3 w-3 ml-1" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {upcomingEvents.map((event) => (
-                <div key={event.id} className="flex gap-3 rounded-lg border border-border/50 bg-slate-50/50 p-3">
-                  <div className="text-center flex-shrink-0 w-12">
-                    <p className="text-lg font-bold text-foreground">{new Date(event.date).getDate()}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(event.date).toLocaleDateString('ru-RU', { month: 'short' })}</p>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{event.title}</p>
-                    <p className="text-xs text-muted-foreground">{event.registrations.length}/{event.capacity} записано</p>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] ${
-                      event.status === 'full'
-                        ? 'bg-red-50 text-red-700 border-red-200'
-                        : 'bg-green-50 text-green-700 border-green-200'
-                    }`}
-                  >
-                    {event.status === 'full' ? 'Полный' : 'Открыт'}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+      <div className="flex items-center gap-3 rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-black/5">
+        <Avatar className="h-10 w-10"><AvatarFallback className={`${admin.accent} text-xs text-white`}>{admin.initials}</AvatarFallback></Avatar>
+        <div><p className="text-sm font-medium">{admin.name}</p><p className="text-xs text-slate-500">{shift ? `Сегодня ${shift.segments.join(', ').replace(/-/g, '–')}` : 'Сегодня без смены'}</p></div>
       </div>
     </div>
-  );
+
+    <div className="mb-5 grid gap-4 sm:grid-cols-3">
+      {[{ label: 'Новые клиенты', value: 12, note: '+4 за неделю', icon: UserRound, tone: 'bg-rose-50 text-rose-600' }, { label: 'Занятий сегодня', value: 18, note: '6 онлайн · 12 очно', icon: CalendarDays, tone: 'bg-sky-50 text-sky-600' }, { label: 'Активные группы', value: 27, note: '3 готовятся к старту', icon: TrendingUp, tone: 'bg-emerald-50 text-emerald-600' }].map((item) => <Card key={item.label} className="rounded-3xl border-0 bg-white/85 shadow-sm ring-1 ring-black/5"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm text-slate-500">{item.label}</p><p className="mt-1 text-3xl font-semibold text-slate-900">{item.value}</p><p className="mt-1 text-xs text-slate-400">{item.note}</p></div><div className={`rounded-2xl p-3 ${item.tone}`}><item.icon className="h-5 w-5" /></div></CardContent></Card>)}
+    </div>
+
+    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.35fr_1fr]">
+      <Card className="rounded-3xl border-0 bg-white/90 shadow-sm ring-1 ring-black/5">
+        <CardHeader className="flex-row items-center justify-between pb-3"><div><CardTitle className="text-base">Задачи на сегодня</CardTitle><p className="mt-1 text-xs text-slate-400">Персонально для вас</p></div><Badge className="rounded-full bg-slate-900">{displayedTasks.length}</Badge></CardHeader>
+        <CardContent className="space-y-2">
+          {displayedTasks.length ? displayedTasks.map((task) => <Link to="/tasks" key={task.id} className="group flex items-start gap-3 rounded-2xl bg-slate-50 p-3 transition hover:bg-slate-100"><CheckCircle2 className="mt-0.5 h-4 w-4 text-slate-300 group-hover:text-emerald-500" /><div className="min-w-0"><p className="text-sm font-medium leading-snug">{task.title}</p><p className="mt-1 text-xs text-slate-400">{task.dueDate === TODAY_KEY ? 'Сегодня' : task.dueDate}</p></div></Link>) : <p className="rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-700">На сегодня всё чисто. Редкая птица, наслаждайтесь.</p>}
+          <Button asChild variant="ghost" className="mt-2 w-full justify-between rounded-xl text-slate-500"><Link to="/tasks">Открыть доску <ArrowRight className="h-4 w-4" /></Link></Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-3xl border-0 bg-white/90 shadow-sm ring-1 ring-black/5">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Клиенты, которые требуют внимания</CardTitle><p className="mt-1 text-xs text-slate-400">Уникальная подборка для {admin.shortName}</p></CardHeader>
+        <CardContent className="space-y-2">
+          {attentionClients.map((student, index) => <Link to="/students" key={student.id} className="flex items-center gap-3 rounded-2xl p-3 transition hover:bg-slate-50"><Avatar className="h-10 w-10"><AvatarFallback className="bg-[#ece9e5] text-xs text-slate-600">{student.name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{student.name}</p><p className="truncate text-xs text-slate-400">{index % 2 ? 'Уточнить готовность и формат занятий' : `До предполагаемого старта ${5 + index} дней`}</p></div><Badge variant="outline" className="rounded-full bg-amber-50 text-[10px] text-amber-700">Внимание</Badge></Link>)}
+        </CardContent>
+      </Card>
+
+      <div className="space-y-5">
+        <Card className="rounded-3xl border-0 bg-[#e8ece9] shadow-sm ring-1 ring-black/5"><CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Clock3 className="h-4 w-4" />Расписание на сегодня</CardTitle></CardHeader><CardContent className="space-y-2">{shift ? shift.segments.map((segment) => <div key={segment} className="rounded-2xl bg-white/65 px-3 py-2 text-sm"><span className="font-medium">{segment.replace('-', '–')}</span><span className="ml-2 text-xs text-slate-500">рабочая смена</span></div>) : <p className="text-sm text-slate-500">Сегодня выходной</p>}<p className="pt-2 text-xs text-slate-500">Команда: 18 занятий · 3 консультации</p></CardContent></Card>
+        <Card className="rounded-3xl border-0 bg-[#eee9e3] shadow-sm ring-1 ring-black/5"><CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4" />Ближайшие мероприятия</CardTitle></CardHeader><CardContent className="space-y-3">{teamSchedule.map((event) => <div key={event.title} className="border-b border-black/5 pb-3 last:border-0 last:pb-0"><p className="text-sm font-medium">{event.title}</p><p className="mt-1 text-xs text-slate-500">{event.time} · {event.place}</p></div>)}</CardContent></Card>
+      </div>
+    </div>
+    <div className="mt-5 flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-4 text-sm text-white shadow-lg"><UsersRound className="h-4 w-4 text-emerald-300" /><span><strong>Команда:</strong> сегодня закрыто 14 задач, три запуска подготовлены без переносов.</span></div>
+  </div>;
 }
