@@ -460,7 +460,7 @@ export default function Tasks() {
   return (
     <div
       ref={boardBackdropRef}
-      className="-m-4 min-h-[calc(100vh-4rem)] overflow-hidden bg-cover bg-center p-4 transition-[background-position] duration-75 md:-m-6 md:p-6"
+      className="min-h-screen overflow-hidden bg-cover bg-center p-4 transition-[background-position] duration-75 md:p-6"
       style={{ backgroundImage: "linear-gradient(rgba(18, 31, 31, 0.2), rgba(11, 24, 23, 0.34)), url('/tasks-nordic-forest.jpg')" }}
     >
       <div className="mb-4 flex flex-col gap-3 rounded-xl border border-white/25 bg-slate-950/45 p-4 text-white shadow-xl shadow-black/15 backdrop-blur-xl xl:flex-row xl:items-end xl:justify-between">
