@@ -1,5 +1,5 @@
 import { type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, differenceInCalendarDays, format, isBefore, isSameDay, parseISO, startOfDay } from 'date-fns';
+import { addDays, format, isBefore, isSameDay, parseISO, startOfDay } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import {
   CalendarDays,
@@ -43,9 +43,9 @@ import { cn } from '../lib/utils';
 
 const STORAGE_KEY = 'dk-admin-kanban-v1';
 const GROUPS_STORAGE_KEY = 'dk-groups-workspace-v2';
-const STARTED_GROUPS_STORAGE_KEY = 'dk-started-groups-v1';
-const DEMO_TODAY = parseISO('2026-08-19');
-const DEMO_TODAY_KEY = '2026-08-19';
+const TODAY = startOfDay(new Date());
+const TODAY_KEY = format(TODAY, 'yyyy-MM-dd');
+const weekdayGenitive = ['воскресенья', 'понедельника', 'вторника', 'среды', 'четверга', 'пятницы', 'субботы'];
 
 const priorityConfig: Record<DemoTaskPriority, { label: string; dot: string; badge: string }> = {
   low: { label: 'Низкий', dot: 'bg-slate-400', badge: 'border-slate-200 bg-slate-50 text-slate-700' },
@@ -68,17 +68,23 @@ type StoredGroupsWorkspace = {
   customGroups?: RealGroup[];
 };
 
-function previousOperatingDay(date: Date, steps: number) {
+function nextOperatingDay(date: Date, steps: number) {
   const result = startOfDay(date);
   let remaining = steps;
   while (remaining > 0) {
-    result.setDate(result.getDate() - 1);
+    result.setDate(result.getDate() + 1);
     if (result.getDay() !== 0) remaining -= 1;
   }
   return result;
 }
 
-function automaticStartTask(group: RealGroup, workspace: StoredGroupsWorkspace): DemoBoardTask {
+function nextMonday(date: Date) {
+  const result = addDays(startOfDay(date), 1);
+  while (result.getDay() !== 1) result.setDate(result.getDate() + 1);
+  return result;
+}
+
+function groupInfo(group: RealGroup, workspace: StoredGroupsWorkspace) {
   const studentIds = workspace.rosters?.[group.id] ?? group.studentIds;
   const studentMap = new Map(importedStudents.map((student) => [student.id, student]));
   const paidCount = studentIds.filter((studentId) => {
@@ -89,68 +95,116 @@ function automaticStartTask(group: RealGroup, workspace: StoredGroupsWorkspace):
     const marks = workspace.paymentMarks?.[`${group.id}:${studentId}`];
     return marks ? marks.includes('studying') : true;
   }).length;
-  const startDate = new Date(group.startDate);
-  const startDateLabel = format(startDate, 'dd.MM.yyyy');
-  const weekday = format(startDate, 'EEEE', { locale: ru });
-  const paymentCheckDate = format(previousOperatingDay(startDate, 3), 'dd.MM');
-  const launchDecisionDate = format(previousOperatingDay(startDate, 2), 'dd.MM');
-  const finalCheckDate = format(previousOperatingDay(startDate, 1), 'dd.MM');
+  return `№${group.code} — ${group.name}; преподаватель: ${group.teacherName || 'не назначен'}; учится: ${studyingCount}/${studentIds.length}; оплачено: ${paidCount}/${studentIds.length}`;
+}
+
+function taskDescription(groups: RealGroup[], targetDate: Date, workspace: StoredGroupsWorkspace) {
+  const heading = `Дата старта: ${format(targetDate, 'dd.MM.yyyy')} (${format(targetDate, 'EEEE', { locale: ru })}).`;
+  if (!groups.length) return `${heading}\nНа эту дату группы в CRM не найдены. Проверить актуальность расписания.`;
+  return [heading, 'Группы:', ...groups.map((group) => `• ${groupInfo(group, workspace)}`)].join('\n');
+}
+
+function regulationTask(
+  date: Date,
+  kind: string,
+  title: string,
+  description: string,
+  subtasks: string[],
+  priority: DemoTaskPriority = 'high',
+): DemoBoardTask {
+  const dateKey = format(date, 'yyyy-MM-dd');
 
   return {
-    id: `auto-group-start-${group.id}`,
-    title: `Подготовить запуск группы №${group.code}`,
-    description: [
-      `Группа: ${group.name} №${group.code}.`,
-      `Старт: ${startDateLabel}, ${weekday}.`,
-      `Преподаватель: ${group.teacherName || 'не назначен'}.`,
-      `Студенты: ${studentIds.length}; отмечены «Учится»: ${studyingCount}; оплачено: ${paidCount}.`,
-      '',
-      'Правила запуска:',
-      '• Стандартный старт — в запланированный день при достаточном количестве оплат.',
-      '• Ранний старт — при 3–4 оплатах сообщить преподавателю о старте за 2–4 дня до занятия.',
-      '• Тяжёлый старт — при менее чем 3 оплатах группу переносим.',
-      '• При нехватке оплат обязательно искать студентов в других группах и заявках и заранее принять решение о переносе.',
-    ].join('\n'),
+    id: `auto-regulation-${dateKey}-${kind}`,
+    title,
+    description,
     assigneeId: null,
-    dueDate: format(startDate, 'yyyy-MM-dd'),
-    priority: 'high',
+    dueDate: dateKey,
+    priority,
     status: 'new',
-    tags: ['Авто', 'Запуск группы', `№${group.code}`],
-    subtasks: [
-      { id: `auto-${group.id}-payments`, title: `${paymentCheckDate} — контроль оплат и опрос студентов`, completed: false },
-      { id: `auto-${group.id}-decision`, title: `${launchDecisionDate} — подтвердить запуск или принять решение о переносе`, completed: false },
-      { id: `auto-${group.id}-final`, title: `${finalCheckDate} — финальная проверка старта`, completed: false },
-      { id: `auto-${group.id}-statuses`, title: 'Проверить, что все участники отмечены «Учится» и «Оплачено»', completed: false },
-      { id: `auto-${group.id}-scenario`, title: 'Определить сценарий запуска: стандартный, ранний или перенос', completed: false },
-      { id: `auto-${group.id}-recruit`, title: 'При нехватке оплат найти студентов в других группах и заявках', completed: false },
-      { id: `auto-${group.id}-teacher`, title: 'Подготовить сообщение преподавателю и проверить его e-mail', completed: false },
-    ],
+    tags: ['Авто', 'Запуск группы'],
+    subtasks: subtasks.map((subtask, index) => ({
+      id: `auto-${dateKey}-${kind}-${index + 1}`,
+      title: subtask,
+      completed: false,
+    })),
     comments: [],
     createdAt: new Date().toISOString(),
   };
 }
 
-function addAutomaticStartTasks(tasks: DemoBoardTask[]): DemoBoardTask[] {
+function addDailyRegulationTasks(tasks: DemoBoardTask[]): DemoBoardTask[] {
   try {
     const workspace = JSON.parse(window.localStorage.getItem(GROUPS_STORAGE_KEY) || '{}') as StoredGroupsWorkspace;
-    const startedGroups = JSON.parse(window.localStorage.getItem(STARTED_GROUPS_STORAGE_KEY) || '{}') as Record<string, unknown>;
-    const today = startOfDay(new Date());
     const groups = [...realGroups, ...(workspace.customGroups || [])].map((group) => ({
       ...group,
       ...workspace.groupDrafts?.[group.id],
       studentIds: workspace.rosters?.[group.id] ?? group.studentIds,
-    }));
+    })).filter((group, index, values) => values.findIndex((item) => item.id === group.id) === index);
+    const migratedTasks = tasks.filter((task) => !task.id.startsWith('auto-group-start-'));
 
-    const automaticTasks = groups
-      .filter((group) => {
-        const daysUntilStart = differenceInCalendarDays(startOfDay(new Date(group.startDate)), today);
-        return group.status !== 'completed' && !startedGroups[group.id] && daysUntilStart >= 0 && daysUntilStart <= 7;
-      })
-      .filter((group, index, values) => values.findIndex((item) => item.id === group.id) === index)
-      .map((group) => automaticStartTask(group, workspace));
+    if (TODAY.getDay() === 0) return migratedTasks;
 
-    const existingIds = new Set(tasks.map((task) => task.id));
-    return [...automaticTasks.filter((task) => !existingIds.has(task.id)), ...tasks];
+    const groupsForDate = (date: Date) => groups.filter((group) =>
+      format(new Date(group.startDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'),
+    );
+    const checkDate = nextOperatingDay(TODAY, 1);
+    const launchDate = nextOperatingDay(TODAY, 2);
+    const controlDate = nextOperatingDay(TODAY, 3);
+    const checkGroups = groupsForDate(checkDate);
+    const launchGroups = groupsForDate(launchDate);
+    const controlGroups = groupsForDate(controlDate);
+    const dailyTasks = [
+      regulationTask(TODAY, 'check', `Проверка стартов ${weekdayGenitive[checkDate.getDay()]}`, taskDescription(checkGroups, checkDate, workspace), [
+        'У всех студентов стоит оплата',
+        'Список группы у преподавателя есть',
+        'Чат в WhatsApp создан',
+      ], 'urgent'),
+      regulationTask(TODAY, 'launch', `Запуск групп ${weekdayGenitive[launchDate.getDay()]}`, taskDescription(launchGroups, launchDate, workspace), [
+        'Проверить все оплаты; если оплаты нет — сделать тык на оплату',
+        'Нажать кнопку «Стартовать группу»',
+        'Проверить всю информацию о группе',
+        'Сделать чат в Telegram',
+        'Проверить расписание',
+      ], 'urgent'),
+      regulationTask(TODAY, 'control', `Контроль оплат и опрос людей ${weekdayGenitive[controlDate.getDay()]}`, taskDescription(controlGroups, controlDate, workspace), [
+        `Напомнить или позвонить студентам групп, стартующих ${weekdayGenitive[controlDate.getDay()]}`,
+        'Зафиксировать ответы и готовность студентов в CRM',
+        'Проверить текущее количество оплат',
+      ]),
+      regulationTask(TODAY, 'reminders-zooms', 'Напоминалки + зумы', 'Ежедневная рабочая задача администратора.', [
+        'Проверить и отправить необходимые напоминания',
+        'Проверить ссылки и данные по Zoom-занятиям',
+      ], 'medium'),
+    ];
+
+    if (TODAY.getDay() === 1 || TODAY.getDay() === 6) {
+      const weekStart = nextMonday(TODAY);
+      const weekEnd = addDays(weekStart, 5);
+      const nextWeekGroups = groups.filter((group) => {
+        const dateKey = format(new Date(group.startDate), 'yyyy-MM-dd');
+        return dateKey >= format(weekStart, 'yyyy-MM-dd') && dateKey <= format(weekEnd, 'yyyy-MM-dd');
+      });
+      const weeklyDescription = [
+        `Период: ${format(weekStart, 'dd.MM.yyyy')}–${format(weekEnd, 'dd.MM.yyyy')}.`,
+        nextWeekGroups.length ? 'Группы:' : 'Группы на следующую неделю в CRM не найдены.',
+        ...nextWeekGroups.map((group) => `• ${groupInfo(group, workspace)}`),
+      ].join('\n');
+      dailyTasks.push(TODAY.getDay() === 1
+        ? regulationTask(TODAY, 'next-week-check', 'Протыкивание следующей недели', weeklyDescription, [
+            'Провести массовый контроль оплат по всем группам следующей недели',
+            'Проверить готовность студентов во всех группах следующей недели',
+            'Связаться с группами, где не хватает оплат или подтверждений',
+          ])
+        : regulationTask(TODAY, 'next-week-plan', 'Планирование всей следующей недели', weeklyDescription, [
+            'Проверить все группы, стартующие с понедельника по субботу',
+            'Составить план контроля оплат, запусков и финальных проверок',
+            'Проверить преподавателей и расписание',
+          ]));
+    }
+
+    const existingIds = new Set(migratedTasks.map((task) => task.id));
+    return [...dailyTasks.filter((task) => !existingIds.has(task.id)), ...migratedTasks];
   } catch {
     return tasks;
   }
@@ -159,26 +213,26 @@ function addAutomaticStartTasks(tasks: DemoBoardTask[]): DemoBoardTask[] {
 function loadTasks(): DemoBoardTask[] {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) return addAutomaticStartTasks(demoAdminTasks);
+    if (!saved) return addDailyRegulationTasks(demoAdminTasks);
     const parsed: unknown = JSON.parse(saved);
-    return addAutomaticStartTasks(Array.isArray(parsed) ? parsed as DemoBoardTask[] : demoAdminTasks);
+    return addDailyRegulationTasks(Array.isArray(parsed) ? parsed as DemoBoardTask[] : demoAdminTasks);
   } catch {
-    return addAutomaticStartTasks(demoAdminTasks);
+    return addDailyRegulationTasks(demoAdminTasks);
   }
 }
 
 function dueDateView(dateKey: string) {
   const date = parseISO(dateKey);
-  if (isBefore(date, DEMO_TODAY)) return { label: 'Просрочено', className: 'text-red-600' };
-  if (isSameDay(date, DEMO_TODAY)) return { label: 'Сегодня', className: 'text-red-600' };
-  if (isBefore(date, addDays(DEMO_TODAY, 3))) return { label: format(date, 'EEEE', { locale: ru }), className: 'text-amber-700' };
+  if (isBefore(date, TODAY)) return { label: 'Просрочено', className: 'text-red-600' };
+  if (isSameDay(date, TODAY)) return { label: 'Сегодня', className: 'text-red-600' };
+  if (isBefore(date, addDays(TODAY, 3))) return { label: format(date, 'EEEE', { locale: ru }), className: 'text-amber-700' };
   return { label: format(date, 'd MMM', { locale: ru }), className: 'text-muted-foreground' };
 }
 
 function shiftLabel(adminId: string) {
-  const shift = getShift(adminId, DEMO_TODAY_KEY);
+  const shift = getShift(adminId, TODAY_KEY);
   if (shift) return `Сегодня · ${shift.segments.join(', ').replace(/-/g, '–')}`;
-  const nextShift = getNextShift(adminId, DEMO_TODAY_KEY);
+  const nextShift = getNextShift(adminId, TODAY_KEY);
   return nextShift ? `Следующая смена · ${format(parseISO(nextShift.date), 'd MMM', { locale: ru })}` : 'Смен пока нет';
 }
 
