@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Edit3,
+  FileText,
   FileUp,
   MoreHorizontal,
   Plus,
@@ -67,6 +68,19 @@ import {
 } from "../data/demoAdministrators";
 import { importedStudents } from "../data/importedStudents";
 import { realGroups, type RealGroup } from "../data/realGroups";
+import {
+  useContractTemplates,
+  ensureRealTemplateLoaded,
+  type ContractTemplate,
+} from "../data/contractTemplatesStore";
+import {
+  courseTypeToGroupCategory,
+  getAgeBracket,
+  templateMatches,
+  buildContractFileForStudent,
+} from "../lib/contractGeneration";
+import { downloadBlob } from "../lib/docxTemplate";
+import { useCurrentUser } from "../hooks/use-auth";
 import { cn } from "../lib/utils";
 import type { Student } from "../types";
 
@@ -246,6 +260,11 @@ function continuationRange(group: RealGroup) {
 }
 
 export default function Groups() {
+  const contractTemplates = useContractTemplates();
+  const { user: currentUser } = useCurrentUser();
+  useEffect(() => {
+    ensureRealTemplateLoaded();
+  }, []);
   const [workspace, setWorkspace] = useState(loadWorkspace);
   const [query, setQuery] = useState("");
   const [statusTab, setStatusTab] = useState<RealGroup["status"]>("active");
@@ -355,6 +374,22 @@ export default function Groups() {
         .map((id) => studentMap.get(id))
         .filter(Boolean) as Student[])
     : [];
+
+  function matchingTemplatesFor(group: RealGroup, student: Student): ContractTemplate[] {
+    const category = courseTypeToGroupCategory(group.courseType);
+    const bracket = getAgeBracket(student.birthDate);
+    return contractTemplates.filter((t) => t.fileBase64 && templateMatches(t, category, bracket, group.language));
+  }
+
+  function handleGenerateContract(template: ContractTemplate, student: Student, group: RealGroup) {
+    try {
+      const { blob, fileName } = buildContractFileForStudent(template, student, group, currentUser?.fullName);
+      downloadBlob(blob, fileName);
+      toast.success(`Договор для ${student.name} сформирован`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сформировать договор");
+    }
+  }
 
   const getPaymentCount = (group: RealGroup) =>
     group.studentIds.reduce((count, studentId) => {
@@ -1183,6 +1218,36 @@ export default function Groups() {
                                                 {label}
                                               </DropdownMenuCheckboxItem>
                                             ))}
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button
+                                              size="icon"
+                                              variant="outline"
+                                              className="h-8 w-8"
+                                              title="Договоры"
+                                            >
+                                              <FileText className="h-4 w-4" />
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end">
+                                            {matchingTemplatesFor(selected, student).length === 0 ? (
+                                              <div className="max-w-[240px] px-2 py-2 text-xs text-muted-foreground">
+                                                Нет подходящих шаблонов для этой группы и возраста ученика. Настройте показ шаблонов в разделе «Договоры».
+                                              </div>
+                                            ) : (
+                                              matchingTemplatesFor(selected, student).map((template) => (
+                                                <DropdownMenuItem
+                                                  key={template.id}
+                                                  onSelect={() =>
+                                                    handleGenerateContract(template, student, selected)
+                                                  }
+                                                >
+                                                  {template.name}
+                                                </DropdownMenuItem>
+                                              ))
+                                            )}
                                           </DropdownMenuContent>
                                         </DropdownMenu>
                                         <Button
