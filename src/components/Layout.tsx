@@ -6,13 +6,10 @@ import {
   GraduationCap,
   UsersRound,
   CheckSquare,
-  MessageSquare,
   BookOpen,
   Calendar,
   CalendarClock,
-  CreditCard,
   PartyPopper,
-  BarChart3,
   Settings,
   ChevronDown,
   ChevronLeft,
@@ -20,7 +17,6 @@ import {
   Search,
   FileText,
   Users2,
-  Target,
   Shield,
   GraduationCap as StudentIcon,
   UsersRound as GroupIcon,
@@ -36,20 +32,16 @@ import { useGlobalSearch } from '../hooks/use-search';
 const navigation = [
   { name: 'Главная', href: '/', icon: LayoutDashboard },
   { name: 'Заявки', href: '/applications', icon: FileText },
-  { name: 'Лиды', href: '/leads', icon: Target },
   { name: 'Клиенты', href: '/students', icon: GraduationCap },
   { name: 'Группы', href: '/groups', icon: UsersRound },
   { name: 'Задачи', href: '/tasks', icon: CheckSquare },
-  { name: 'Чаты', href: '/chats', icon: MessageSquare },
   { name: 'Преподаватели', href: '/teachers', icon: BookOpen },
   { name: 'Расписание', href: '/teacher-schedule', icon: Calendar },
   { name: 'Администраторы', href: '/admin-schedule', icon: CalendarClock },
   { name: 'Клубы', href: '/clubs', icon: Users2 },
   { name: 'Договоры', href: '/contracts', icon: FileText },
   { name: 'Справочники', href: '/dictionaries', icon: BookOpen },
-  { name: 'Оплаты', href: '/payments', icon: CreditCard },
   { name: 'Мероприятия', href: '/events', icon: PartyPopper },
-  { name: 'Отчёты', href: '/reports', icon: BarChart3 },
   { name: 'Права доступа', href: '/permissions', icon: Shield },
   { name: 'Настройки', href: '/settings', icon: Settings },
 ];
@@ -148,6 +140,7 @@ const roleLabels: Record<string, string> = {
 };
 
 export function Header({ sidebarCollapsed }: HeaderProps) {
+  const location = useLocation();
   const { user, logout } = useCurrentUser();
   const navigate = useNavigate();
   const { query, results, isOpen, handleQueryChange, selectResult, close } = useGlobalSearch();
@@ -161,6 +154,8 @@ export function Header({ sidebarCollapsed }: HeaderProps) {
     group: GroupIcon,
     teacher: TeacherIcon,
   };
+
+  if (location.pathname.startsWith('/tasks')) return null;
 
   return (
     <header
@@ -255,6 +250,8 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const location = useLocation();
+  const isTasksPage = location.pathname.startsWith('/tasks');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-muted/30 via-background to-muted/30">
@@ -262,11 +259,12 @@ export default function Layout({ children }: LayoutProps) {
       <Header sidebarCollapsed={sidebarCollapsed} />
       <main
         className={cn(
-          'pt-16 transition-[margin-left] duration-300 will-change-[margin-left]',
+          'transition-[margin-left,padding-top] duration-300 will-change-[margin-left]',
+          isTasksPage ? 'pt-0' : 'pt-16',
           sidebarCollapsed ? 'ml-16' : 'ml-60'
         )}
       >
-        <div className="p-6 lg:p-8">{children}</div>
+        <div className={cn(isTasksPage ? 'p-0' : 'p-6 lg:p-8')}>{children}</div>
       </main>
     </div>
   );

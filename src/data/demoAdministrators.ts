@@ -42,6 +42,7 @@ export interface DemoBoardTask {
   subtasks: DemoSubtask[];
   comments: DemoTaskComment[];
   createdAt: string;
+  completedAt?: string;
 }
 
 export const demoAdministrators: DemoAdministrator[] = [
@@ -84,6 +85,25 @@ const encodedSchedule: Record<string, Record<string, string>> = {
 export const demoAdminShifts: DemoShift[] = Object.entries(encodedSchedule).flatMap(([date, shifts]) =>
   Object.entries(shifts).map(([adminId, encoded]) => ({ adminId, date, segments: encoded.split('|') })),
 );
+
+const ADMIN_SCHEDULE_OVERRIDES_KEY = 'dk-admin-schedule-overrides-v1';
+
+function hoursToSegments(hours: number[]): string[] {
+  if (!hours.length) return [];
+  const sorted = [...hours].sort((a, b) => a - b);
+  const segments: string[] = [];
+  let start = sorted[0];
+  let previous = sorted[0];
+  sorted.slice(1).forEach((hour) => {
+    if (hour !== previous + 1) {
+      segments.push(`${String(start).padStart(2, '0')}:00-${String(previous + 1).padStart(2, '0')}:00`);
+      start = hour;
+    }
+    previous = hour;
+  });
+  segments.push(`${String(start).padStart(2, '0')}:00-${String(previous + 1).padStart(2, '0')}:00`);
+  return segments;
+}
 
 const task = (
   id: string,
@@ -136,6 +156,16 @@ export const demoAdminTasks: DemoBoardTask[] = [
 ];
 
 export function getShift(adminId: string, date: string): DemoShift | undefined {
+  try {
+    const overrides = JSON.parse(localStorage.getItem(ADMIN_SCHEDULE_OVERRIDES_KEY) || '{}');
+    const hours = overrides[date]?.[adminId];
+    if (Array.isArray(hours)) {
+      const segments = hoursToSegments(hours);
+      return segments.length ? { adminId, date, segments } : undefined;
+    }
+  } catch {
+    // Fall back to the initial schedule if locally edited data is unavailable.
+  }
   return demoAdminShifts.find((shift) => shift.adminId === adminId && shift.date === date);
 }
 

@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
+  ArrowLeft,
+  ArrowRight,
   Edit3,
   FileUp,
   MoreHorizontal,
   Plus,
+  Printer,
+  Rocket,
   Search,
   Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -69,6 +72,7 @@ import type { Student } from "../types";
 
 const GROUPS_KEY = "dk-groups-workspace-v2";
 const TASKS_KEY = "dk-admin-kanban-v1";
+const STARTED_GROUPS_KEY = "dk-started-groups-v1";
 const dayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 const taskPresets = [
   "Тык на прод группы",
@@ -78,12 +82,21 @@ const taskPresets = [
 ];
 type StudentState = "Учится" | "Думает" | "Ожидает" | "Закончил" | "Отказался";
 type PayMark = "half" | "paid" | "trial" | "studying";
+type GroupComment = {
+  id: string;
+  text: string;
+  author: string;
+  createdAt: string;
+};
 type Workspace = {
   rosters: Record<string, string[]>;
   paymentMarks: Record<string, PayMark[]>;
   studentStates: Record<string, StudentState>;
   customStudents: Student[];
   groupDrafts: Record<string, Partial<RealGroup>>;
+  groupComments: Record<string, GroupComment[]>;
+  customGroups: RealGroup[];
+  groupLinks: Record<string, { previousId?: string; nextId?: string }>;
 };
 
 const emptyWorkspace: Workspace = {
@@ -94,6 +107,27 @@ const emptyWorkspace: Workspace = {
   studentStates: {},
   customStudents: [],
   groupDrafts: {},
+  groupComments: Object.fromEntries(
+    realGroups.map((group) => [
+      group.id,
+      [
+        {
+          id: `${group.id}-comment-1`,
+          text: "Курс идёт по плану. Следующая проверка набора — в конце недели.",
+          author: "Администратор",
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: `${group.id}-comment-2`,
+          text: "Проверить оплаты перед подтверждением старта.",
+          author: "Демо-директор",
+          createdAt: new Date(Date.now() - 86400000).toISOString(),
+        },
+      ],
+    ]),
+  ),
+  customGroups: [],
+  groupLinks: {},
 };
 
 function loadWorkspace(): Workspace {
@@ -123,6 +157,14 @@ function paymentBadges(marks: PayMark[]) {
     paid: ["Оплачено", "bg-yellow-300 text-yellow-950"],
     trial: ["Пробное занятие", "bg-orange-400 text-white"],
   };
+  if (!marks.length) {
+    return (
+      <>
+        <Badge className="border-0 bg-lime-200 text-[10px] text-lime-900">Не учится</Badge>
+        <Badge className="border-0 bg-red-500 text-[10px] text-white">Не оплачено</Badge>
+      </>
+    );
+  }
   return marks.map((mark) => (
     <Badge
       key={mark}
@@ -131,6 +173,76 @@ function paymentBadges(marks: PayMark[]) {
       {config[mark][0]}
     </Badge>
   ));
+}
+
+const courseTypeLabels: Record<string, string> = {
+  mini: "МИНИ",
+  intensive: "ИНТЕНСИВ",
+  club: "КЛУБ",
+  grammar: "ГРАММАТИКА",
+  phonetics: "PHONETIK",
+};
+
+function groupFormat(group: Pick<RealGroup, "schedule">) {
+  const schedule = group.schedule || [];
+  const hasOnline = schedule.some((item) => Boolean(item.zoomRoom));
+  const hasOffline = schedule.some((item) => Boolean(item.classroom));
+  if (hasOnline && hasOffline) return "ОН/ОФ";
+  return hasOnline ? "ОН" : "ОФ";
+}
+
+function groupTitle(group: RealGroup, paid: number, total: number) {
+  const language = group.language === "German" ? "Нем" : "Анг";
+  const courseType = courseTypeLabels[group.courseType];
+  const dateRange = `${format(new Date(group.startDate), "dd.MM")}-${format(new Date(group.endDate), "dd.MM")}`;
+  const days = group.schedule
+    .map((item) => dayNames[item.dayOfWeek].toUpperCase())
+    .join("/");
+  const code = group.code.replace("26-", "");
+  const originalMiddle =
+    group.name.match(/[ABC]\d(?:\.[\d.]+)?\s+(.+?)\s+\d{2}\.\d{2}/i)?.[1] || "";
+  return [language, courseType, group.level, originalMiddle, dateRange, days, code, groupFormat(group)]
+    .filter(Boolean)
+    .join(" ") + ` | ${paid}/${total}`;
+}
+
+function nextCourseLevel(level: string) {
+  const parts = level.split(".");
+  const last = Number(parts[parts.length - 1]);
+  if (parts.length > 1 && Number.isFinite(last)) {
+    parts[parts.length - 1] = String(last + 1);
+    return parts.join(".");
+  }
+  const match = level.match(/^([ABC])(\d)$/i);
+  if (!match) return level;
+  const step = Number(match[2]);
+  return step < 2
+    ? `${match[1].toUpperCase()}${step + 1}`
+    : `${String.fromCharCode(match[1].toUpperCase().charCodeAt(0) + 1)}1`;
+}
+
+function continuationRange(group: RealGroup) {
+  const schedule = group.schedule.length
+    ? group.schedule
+    : [{ dayOfWeek: new Date(group.endDate).getDay(), startTime: "19:00", endTime: "20:30" }];
+  const cursor = new Date(group.endDate);
+  cursor.setHours(12, 0, 0, 0);
+  let accumulatedHours = 0;
+  let startDate: Date | null = null;
+  let endDate = new Date(cursor);
+  for (let offset = 1; offset <= 370 && accumulatedHours < group.hours; offset += 1) {
+    const date = new Date(cursor);
+    date.setDate(cursor.getDate() + offset);
+    const lessons = schedule.filter((item) => item.dayOfWeek === date.getDay());
+    lessons.forEach((lesson) => {
+      if (!startDate) startDate = new Date(date);
+      const [startHour, startMinute] = lesson.startTime.split(":").map(Number);
+      const [endHour, endMinute] = lesson.endTime.split(":").map(Number);
+      accumulatedHours += ((endHour * 60 + endMinute) - (startHour * 60 + startMinute)) / 45;
+      endDate = new Date(date);
+    });
+  }
+  return { startDate: startDate || new Date(cursor), endDate };
 }
 
 export default function Groups() {
@@ -154,6 +266,32 @@ export default function Groups() {
   });
   const [studentOpen, setStudentOpen] = useState(false);
   const [studentProfileId, setStudentProfileId] = useState<string | null>(null);
+  const [startGroupOpen, setStartGroupOpen] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [startGroupForm, setStartGroupForm] = useState({
+    teacherMessage: "",
+    teacherEmail: "",
+  });
+  const [startEmailError, setStartEmailError] = useState("");
+  const [startValidationErrors, setStartValidationErrors] = useState<string[]>([]);
+  const [cancelGroupOpen, setCancelGroupOpen] = useState(false);
+  const [cancelGroupForm, setCancelGroupForm] = useState({ teacherMessage: "", teacherEmail: "" });
+  const [cancelEmailError, setCancelEmailError] = useState("");
+  const [startSummary, setStartSummary] = useState<{
+    startedGroup: string;
+    continuationGroup: string;
+    teacher: string;
+    email: string;
+    students: string[];
+  } | null>(null);
+  const [startedGroupIds, setStartedGroupIds] = useState<Set<string>>(() => {
+    try {
+      return new Set(Object.keys(JSON.parse(localStorage.getItem(STARTED_GROUPS_KEY) || "{}")));
+    } catch {
+      return new Set();
+    }
+  });
   const [studentForm, setStudentForm] = useState({
     firstName: "",
     lastName: "",
@@ -182,6 +320,11 @@ export default function Groups() {
   useEffect(() => {
     localStorage.setItem(GROUPS_KEY, JSON.stringify(workspace));
   }, [workspace]);
+
+  useEffect(() => {
+    setCommentDraft("");
+    setEditingCommentId(null);
+  }, [selectedId]);
   const students = useMemo(
     () => [...importedStudents, ...workspace.customStudents],
     [workspace.customStudents],
@@ -192,7 +335,7 @@ export default function Groups() {
   );
   const groups = useMemo(
     () =>
-      realGroups.map((group) => ({
+      [...realGroups, ...(workspace.customGroups || [])].map((group) => ({
         ...group,
         ...workspace.groupDrafts[group.id],
         studentIds: workspace.rosters[group.id] ?? group.studentIds,
@@ -212,6 +355,316 @@ export default function Groups() {
         .map((id) => studentMap.get(id))
         .filter(Boolean) as Student[])
     : [];
+
+  const getPaymentCount = (group: RealGroup) =>
+    group.studentIds.reduce((count, studentId) => {
+      const marks = workspace.paymentMarks[`${group.id}:${studentId}`];
+      const student = studentMap.get(studentId);
+      return count + (marks ? Number(marks.includes("paid")) : Number(student?.paymentStatus === "paid"));
+    }, 0);
+
+  const getGroupTitle = (group: RealGroup) =>
+    groupTitle(group, getPaymentCount(group), group.studentIds.length);
+
+  const selectedComments = selected
+    ? workspace.groupComments[selected.id] || []
+    : [];
+
+  const submitComment = () => {
+    if (!selected || !commentDraft.trim()) return;
+    const text = commentDraft.trim();
+    setWorkspace((current) => {
+      const comments = current.groupComments[selected.id] || [];
+      return {
+        ...current,
+        groupComments: {
+          ...current.groupComments,
+          [selected.id]: editingCommentId
+            ? comments.map((comment) =>
+                comment.id === editingCommentId
+                  ? { ...comment, text }
+                  : comment,
+              )
+            : [
+                {
+                  id: `group-comment-${Date.now()}`,
+                  text,
+                  author: "Пользователь",
+                  createdAt: new Date().toISOString(),
+                },
+                ...comments,
+              ],
+        },
+      };
+    });
+    toast.success(editingCommentId ? "Комментарий обновлён" : "Комментарий добавлен");
+    setCommentDraft("");
+    setEditingCommentId(null);
+  };
+
+  const editComment = (comment: GroupComment) => {
+    setEditingCommentId(comment.id);
+    setCommentDraft(comment.text);
+  };
+
+  const openStartGroup = () => {
+    if (!selected) return;
+    const schedule = selected.schedule
+      .map(
+        (item) =>
+          `${dayNames[item.dayOfWeek]} ${item.startTime}-${item.endTime}`,
+      )
+      .join(", ");
+    setStartGroupForm({
+      teacherMessage: `Здравствуйте!\n\nГруппа ${getGroupTitle(selected)} стартует ${format(new Date(selected.startDate), "dd.MM.yyyy")}.\nУровень: ${selected.level}.\nРасписание: ${schedule}.\nКоличество человек: ${selected.studentIds.length}.\n\nПожалуйста, подтвердите получение информации.`,
+      teacherEmail: "",
+    });
+    setStartEmailError("");
+    setStartValidationErrors([]);
+    setStartGroupOpen(true);
+  };
+
+  const openCancelGroup = () => {
+    if (!selected) return;
+    const teacherParts = selected.teacherName.trim().split(/\s+/);
+    const teacherFirstName = teacherParts[1] || teacherParts[0] || "коллега";
+    setCancelGroupForm({
+      teacherMessage: `Привет, ${teacherFirstName}! Группу ${getGroupTitle(selected)} запустили по ошибке. Ниже прилагаю обновлённые сведения.`,
+      teacherEmail: "",
+    });
+    setCancelEmailError("");
+    setCancelGroupOpen(true);
+  };
+
+  const startGroup = () => {
+    if (!selected) return;
+    const validationErrors: string[] = [];
+    const teacherMessage = startGroupForm.teacherMessage.trim();
+    const teacherEmail = startGroupForm.teacherEmail.trim();
+
+    roster.forEach((student) => {
+      const marks = workspace.paymentMarks[`${selected.id}:${student.id}`];
+      const isStudying = marks ? marks.includes("studying") : true;
+      const isPaid = marks
+        ? marks.includes("paid")
+        : student.paymentStatus === "paid";
+
+      if (!isPaid) {
+        validationErrors.push(
+          `Студент ${student.name} ещё не оплатил курс или не отмечен в CRM как «Оплачено».`,
+        );
+      }
+      if (!isStudying) {
+        validationErrors.push(
+          `Студент ${student.name} не отмечен в CRM как «Учится».`,
+        );
+      }
+    });
+
+    if (!teacherMessage) {
+      validationErrors.push("Поле «Сообщение преподавателю» не должно быть пустым.");
+    }
+    if (!teacherEmail) {
+      validationErrors.push("Поле «E-mail преподавателя» не должно быть пустым.");
+      setStartEmailError("Укажите e-mail преподавателя");
+    } else if (!teacherEmail.includes("@")) {
+      validationErrors.push("E-mail преподавателя должен содержать @.");
+      setStartEmailError("Укажите корректный e-mail: адрес должен содержать @");
+    } else {
+      setStartEmailError("");
+    }
+
+    setStartValidationErrors(validationErrors);
+    if (validationErrors.length) {
+      return;
+    }
+
+    const existingNextId = workspace.groupLinks[selected.id]?.nextId;
+    const existingContinuation = existingNextId
+      ? groups.find((group) => group.id === existingNextId)
+      : undefined;
+    const nextLevel = nextCourseLevel(selected.level);
+    const { startDate, endDate } = continuationRange(selected);
+    const newCode = String(7000 + (Date.now() % 2000));
+    const continuationId = existingContinuation?.id || `continuation-${Date.now()}`;
+    const originalMiddle =
+      selected.name.match(/[ABC]\d(?:\.[\d.]+)?\s+(.+?)\s+\d{2}\.\d{2}/i)?.[1] || "";
+    const continuation: RealGroup = existingContinuation || {
+      ...selected,
+      id: continuationId,
+      code: newCode,
+      name: `${selected.language === "German" ? "Нем" : "Анг"} ${courseTypeLabels[selected.courseType] || ""} ${nextLevel} ${originalMiddle} ${format(startDate, "dd.MM")}-${format(endDate, "dd.MM")}`.replace(/\s+/g, " ").trim(),
+      level: nextLevel,
+      startDate,
+      endDate,
+      studentIds: [...selected.studentIds],
+      status: "planned",
+    };
+
+    setWorkspace((current) => {
+      const emptyContinuationMarks = Object.fromEntries(
+        selected.studentIds.map((studentId) => [
+          `${continuationId}:${studentId}`,
+          [] as PayMark[],
+        ]),
+      );
+      return {
+        ...current,
+        customGroups: existingContinuation
+          ? current.customGroups
+          : [...(current.customGroups || []), continuation],
+        groupDrafts: {
+          ...current.groupDrafts,
+          [selected.id]: { ...current.groupDrafts[selected.id], status: "active" },
+        },
+        rosters: {
+          ...current.rosters,
+          [continuationId]: [...selected.studentIds],
+        },
+        paymentMarks: {
+          ...current.paymentMarks,
+          ...emptyContinuationMarks,
+        },
+        groupLinks: {
+          ...current.groupLinks,
+          [selected.id]: {
+            ...current.groupLinks[selected.id],
+            nextId: continuationId,
+          },
+          [continuationId]: {
+            ...current.groupLinks[continuationId],
+            previousId: selected.id,
+          },
+        },
+        groupComments: {
+          ...current.groupComments,
+          [selected.id]: [{
+            id: `group-start-${Date.now()}`,
+            text: `Группа ${selected.name} стартована\n\nстарт+, тг+, расп+, прод+`,
+            author: "Демо-директор",
+            createdAt: new Date().toISOString(),
+          }, ...(current.groupComments[selected.id] || [])],
+        },
+      };
+    });
+
+    const startedGroups = JSON.parse(localStorage.getItem(STARTED_GROUPS_KEY) || "{}");
+    localStorage.setItem(
+      STARTED_GROUPS_KEY,
+      JSON.stringify({
+        ...startedGroups,
+        [selected.id]: {
+          startedAt: new Date().toISOString(),
+          firstLessonDate: format(new Date(selected.startDate), "yyyy-MM-dd"),
+          format: groupFormat(selected) === "ОН" ? "online" : "offline",
+          originalStatus: selected.status,
+        },
+      }),
+    );
+    setStartedGroupIds((current) => new Set(current).add(selected.id));
+
+    const outbox = JSON.parse(localStorage.getItem("dk-teacher-mail-outbox-v1") || "[]");
+    localStorage.setItem(
+      "dk-teacher-mail-outbox-v1",
+      JSON.stringify([
+        {
+          id: `teacher-mail-${Date.now()}`,
+          groupId: selected.id,
+          to: teacherEmail,
+          message: teacherMessage,
+          attachment: "group-students-and-lessons.pdf",
+          status: "prepared",
+          createdAt: new Date().toISOString(),
+        },
+        ...outbox,
+      ]),
+    );
+
+    setStartGroupOpen(false);
+    setStartSummary({
+      startedGroup: getGroupTitle(selected),
+      continuationGroup: groupTitle(continuation, 0, continuation.studentIds.length),
+      teacher: selected.teacherName,
+      email: teacherEmail,
+      students: roster.map((student) => student.name),
+    });
+  };
+
+  const cancelGroupStart = () => {
+    if (!selected) return;
+    const teacherEmail = cancelGroupForm.teacherEmail.trim();
+    const teacherMessage = cancelGroupForm.teacherMessage.trim();
+    if (teacherEmail && !teacherEmail.includes("@")) {
+      setCancelEmailError("Укажите корректный e-mail: адрес должен содержать @");
+      return;
+    }
+    if (teacherMessage && !teacherEmail) {
+      setCancelEmailError("Укажите e-mail преподавателя или очистите текст письма");
+      return;
+    }
+
+    const startedGroups = JSON.parse(localStorage.getItem(STARTED_GROUPS_KEY) || "{}");
+    const launchData = startedGroups[selected.id] || {};
+    const continuationId = workspace.groupLinks[selected.id]?.nextId;
+    setWorkspace((current) => {
+      const paymentMarks = Object.fromEntries(Object.entries(current.paymentMarks).filter(
+        ([key]) => !continuationId || !key.startsWith(`${continuationId}:`),
+      ));
+      const groupLinks = { ...current.groupLinks };
+      const selectedLink = groupLinks[selected.id];
+      if (selectedLink) groupLinks[selected.id] = { previousId: selectedLink.previousId };
+      if (continuationId) delete groupLinks[continuationId];
+      const rosters = { ...current.rosters };
+      const groupDrafts = { ...current.groupDrafts };
+      const groupComments = { ...current.groupComments };
+      if (continuationId) {
+        delete rosters[continuationId];
+        delete groupDrafts[continuationId];
+        delete groupComments[continuationId];
+      }
+      return {
+        ...current,
+        customGroups: (current.customGroups || []).filter((group) => group.id !== continuationId),
+        groupDrafts: {
+          ...groupDrafts,
+          [selected.id]: { ...groupDrafts[selected.id], status: launchData.originalStatus || "planned" },
+        },
+        rosters,
+        paymentMarks,
+        groupComments: {
+          ...groupComments,
+          [selected.id]: [{
+            id: `group-start-cancel-${Date.now()}`,
+            text: `Старт группы ${selected.name} отменён\n\nстарт−, расп−, прод−`,
+            author: "Демо-директор",
+            createdAt: new Date().toISOString(),
+          }, ...(groupComments[selected.id] || [])],
+        },
+        groupLinks,
+      };
+    });
+    delete startedGroups[selected.id];
+    localStorage.setItem(STARTED_GROUPS_KEY, JSON.stringify(startedGroups));
+    setStartedGroupIds((current) => {
+      const next = new Set(current);
+      next.delete(selected.id);
+      return next;
+    });
+    if (teacherEmail && teacherMessage) {
+      const outbox = JSON.parse(localStorage.getItem("dk-teacher-mail-outbox-v1") || "[]");
+      localStorage.setItem("dk-teacher-mail-outbox-v1", JSON.stringify([{
+        id: `teacher-cancel-mail-${Date.now()}`,
+        groupId: selected.id,
+        to: teacherEmail,
+        message: teacherMessage,
+        attachment: "updated-group-information.pdf",
+        status: "prepared",
+        createdAt: new Date().toISOString(),
+      }, ...outbox]));
+    }
+    setCancelGroupOpen(false);
+    toast.success("Старт группы отменён, расписание восстановлено");
+  };
 
   const openEdit = () => {
     if (!selected) return;
@@ -360,20 +813,45 @@ export default function Groups() {
     toast.success("Статус студента обновлён");
   };
 
+  const printGroup = (documentType: "attendance" | "list") => {
+    if (!selected) return;
+    const escapeHtml = (value: unknown) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const lessonDates = Array.from({ length: 5 }, (_, index) => {
+      const date = new Date(selected.startDate);
+      date.setDate(date.getDate() + index * 7);
+      return format(date, "dd.MM");
+    });
+    const title = `💡${escapeHtml(getGroupTitle(selected))}`;
+    const studentRows = roster
+      .map(
+        (student, index) =>
+          `<tr><td>${index + 1}</td><td>${escapeHtml(student.name)}</td>${
+            documentType === "attendance"
+              ? `<td>${escapeHtml(student.email)}</td>${lessonDates.map(() => "<td></td>").join("")}${Array.from({ length: 7 }, () => "<td></td>").join("")}`
+              : "<td></td><td></td><td></td><td></td>"
+          }</tr>`,
+      )
+      .join("");
+    const headers =
+      documentType === "attendance"
+        ? `<tr><th rowspan="2">#</th><th rowspan="2">Фамилия Имя</th><th rowspan="2">Email</th>${lessonDates.map((_, index) => `<th>${index + 1}</th>`).join("")}<th colspan="7"></th></tr><tr>${lessonDates.map((date) => `<th>${date}</th>`).join("")}${Array.from({ length: 7 }, (_, index) => `<th>${index + 1}</th>`).join("")}</tr>`
+        : '<tr><th>#</th><th>Фамилия Имя</th><th>Договор №</th><th>ООО / ИП</th><th>Наш экземпляр сдан</th><th>Данные в базе</th></tr>';
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Браузер заблокировал окно печати");
+      return;
+    }
+    printWindow.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${title}</title><style>@page{size:${documentType === "attendance" ? "A4 landscape" : "A4 portrait"};margin:15mm 12mm 12mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#252a2f}h1{margin:0 0 5mm;text-align:center;font-size:18px;line-height:26px}table{width:100%;border-collapse:collapse;font-size:14px;break-inside:auto}tr{break-inside:avoid}th,td{height:30px;border:1px solid #d5d5d5;padding:4px 6px;text-align:left}th{font-weight:700;text-align:center}${documentType === "attendance" ? "th:nth-child(n+4),td:nth-child(n+4){width:5%;text-align:center}" : ""}</style></head><body><h1>${title}</h1><table><thead>${headers}</thead><tbody>${studentRows}</tbody></table><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),150));</script></body></html>`);
+    printWindow.document.close();
+  };
+
   return (
-    <div className="h-[calc(100vh-7rem)] space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Группы</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Работа с группами, студентами и связанными задачами
-          </p>
-        </div>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          Добавить группу
-        </Button>
-      </div>
+    <div className="h-[calc(100vh-4.5rem)]">
       <Tabs
         value={statusTab}
         onValueChange={(value) => setStatusTab(value as RealGroup["status"])}
@@ -394,6 +872,10 @@ export default function Groups() {
               className="h-9 pl-9"
             />
           </div>
+          <Button size="sm" className="ml-auto h-8 gap-1.5 px-3 text-xs">
+            <Plus className="h-3.5 w-3.5" />
+            Добавить группу
+          </Button>
         </div>
         <TabsContent value={statusTab} className="mt-3 min-h-0 flex-1">
           <div className="flex h-full gap-4">
@@ -413,7 +895,7 @@ export default function Groups() {
                     >
                       <div className="flex justify-between gap-2">
                         <span className="truncate text-sm font-medium">
-                          {group.name}
+                          {getGroupTitle(group)}
                         </span>
                         <span className="text-xs text-muted-foreground">
                           #{group.code.replace("26-", "")}
@@ -425,7 +907,7 @@ export default function Groups() {
                       </p>
                       <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                         <Users className="h-3.5 w-3.5" />
-                        {group.studentIds.length}/{group.maxStudents}
+                        {getPaymentCount(group)}/{group.studentIds.length}
                       </div>
                     </button>
                   ))}
@@ -435,12 +917,12 @@ export default function Groups() {
             <Card className="min-w-0 flex-1 overflow-hidden">
               {selected ? (
                 <ScrollArea className="h-full">
-                  <div className="space-y-5 p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-4 p-5">
+                    <div className="border-b pb-3">
                       <div>
                         <div className="flex items-center gap-2">
                           <h2 className="text-lg font-semibold">
-                            {selected.name}
+                            {getGroupTitle(selected)}
                           </h2>
                           <Badge variant="outline">
                             #{selected.code.replace("26-", "")}
@@ -453,11 +935,19 @@ export default function Groups() {
                           · {selected.level} · {selected.teacherName}
                         </p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          className={cn("h-8 gap-1.5 px-3 text-xs", startedGroupIds.has(selected.id) ? "bg-slate-400 text-white hover:bg-slate-500" : "bg-[#df7b6c] hover:bg-[#ce695a]")}
+                          onClick={startedGroupIds.has(selected.id) ? openCancelGroup : openStartGroup}
+                        >
+                          <Rocket className="h-3.5 w-3.5" />
+                          {startedGroupIds.has(selected.id) ? "Отменить старт группы" : "Стартовать группу"}
+                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button className="gap-2">
-                              <Plus className="h-4 w-4" />
+                            <Button size="sm" className="h-8 gap-1.5 px-3 text-xs">
+                              <Plus className="h-3.5 w-3.5" />
                               Добавить задачу
                             </Button>
                           </DropdownMenuTrigger>
@@ -478,52 +968,135 @@ export default function Groups() {
                         </DropdownMenu>
                         <Button
                           variant="outline"
-                          className="gap-2"
+                          size="sm"
+                          className="h-8 gap-1.5 px-3 text-xs"
                           onClick={() => setStudentOpen(true)}
                         >
-                          <UserPlus className="h-4 w-4" />
+                          <UserPlus className="h-3.5 w-3.5" />
                           Добавить студента
                         </Button>
                         <Button
                           variant="outline"
-                          className="gap-2"
+                          size="sm"
+                          className="h-8 gap-1.5 px-3 text-xs"
                           onClick={openEdit}
                         >
-                          <Edit3 className="h-4 w-4" />
+                          <Edit3 className="h-3.5 w-3.5" />
                           Редактирование группы
                         </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 gap-1.5 px-3 text-xs">
+                              <Printer className="h-3.5 w-3.5" />
+                              Печать
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => printGroup("attendance")}>
+                              Журнал посещений
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => printGroup("list")}>
+                              Список группы
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {[
-                        [
-                          "Начало",
-                          format(new Date(selected.startDate), "dd.MM.yyyy"),
-                        ],
-                        [
-                          "Окончание",
-                          format(new Date(selected.endDate), "dd.MM.yyyy"),
-                        ],
-                        ["Объём", `${selected.hours} ак. ч.`],
-                        ["Стоимость", `${selected.price.toLocaleString()} ₽`],
-                        ["Учебник", selected.textbook || "—"],
-                        [
-                          "Расписание",
-                          selected.schedule
-                            .map(
-                              (item) =>
-                                `${dayNames[item.dayOfWeek]} ${item.startTime}–${item.endTime}`,
-                            )
-                            .join(", ") || "—",
-                        ],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-lg bg-muted/70 p-3">
-                          <p className="text-xs text-muted-foreground">
-                            {label}
-                          </p>
-                          <p className="mt-1 text-sm font-medium">{value}</p>
+                    <div className="grid gap-5 pb-4 lg:grid-cols-2">
+                      <dl className="grid grid-cols-[130px_minmax(0,1fr)] content-start gap-x-5 gap-y-2 text-sm">
+                        {[
+                          ["Номер группы", selected.code],
+                          ["Язык", selected.language === "German" ? "Немецкий" : "Английский"],
+                          ["Уровень", selected.level],
+                          ["Тип курса", selected.courseType],
+                          ["Объём курса", `${selected.hours} ак. ч.`],
+                          ["Стоимость", `${selected.price.toLocaleString()} ₽`],
+                          ["Учитель", selected.teacherName],
+                          ["Учебник", selected.textbook || "—"],
+                          ["Дата начала", format(new Date(selected.startDate), "dd.MM.yyyy")],
+                          ["Дата окончания", format(new Date(selected.endDate), "dd.MM.yyyy")],
+                          ["Дни занятий", selected.schedule.map((item) => dayNames[item.dayOfWeek]).join(", ") || "—"],
+                          ["Время", selected.schedule.map((item) => `${item.startTime}–${item.endTime}`).join(", ") || "—"],
+                        ].map(([label, value]) => (
+                          <div key={label} className="contents">
+                            <dt className="text-right font-semibold text-muted-foreground">{label}</dt>
+                            <dd>{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <section className="flex min-h-[265px] flex-col border-l pl-5">
+                        <h3 className="mb-3 font-semibold">Комментарии группы</h3>
+                        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto border-y py-2 text-sm">
+                          {selectedComments.map((comment) => (
+                            <button
+                              key={comment.id}
+                              type="button"
+                              onClick={() => editComment(comment)}
+                              className={cn(
+                                "w-full border-b px-1 py-2 text-left transition-colors last:border-0 hover:bg-muted/60",
+                                editingCommentId === comment.id &&
+                                  "bg-teal-50 ring-1 ring-inset ring-teal-200",
+                              )}
+                            >
+                              <p>{comment.text}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {comment.author} · {format(new Date(comment.createdAt), "dd.MM.yyyy HH:mm")}
+                              </p>
+                            </button>
+                          ))}
                         </div>
-                      ))}
+                        <Textarea
+                          className="mt-3 min-h-20"
+                          placeholder="Новый комментарий…"
+                          value={commentDraft}
+                          onChange={(event) => setCommentDraft(event.target.value)}
+                        />
+                        <div className="mt-2 flex items-center gap-2">
+                          <Button size="sm" onClick={submitComment}>
+                            {editingCommentId ? "Обновить" : "Отправить"}
+                          </Button>
+                          {editingCommentId && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setEditingCommentId(null);
+                                setCommentDraft("");
+                              }}
+                            >
+                              Отмена
+                            </Button>
+                          )}
+                        </div>
+                      </section>
+                    </div>
+                    <div className="flex items-center justify-between border-t pt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!workspace.groupLinks[selected.id]?.previousId}
+                        onClick={() => {
+                          const previousId = workspace.groupLinks[selected.id]?.previousId;
+                          if (previousId) setSelectedId(previousId);
+                        }}
+                        className="gap-1.5"
+                      >
+                        <ArrowLeft className="h-3.5 w-3.5" />
+                        Предыдущая группа
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!workspace.groupLinks[selected.id]?.nextId}
+                        onClick={() => {
+                          const nextId = workspace.groupLinks[selected.id]?.nextId;
+                          if (nextId) setSelectedId(nextId);
+                        }}
+                        className="gap-1.5"
+                      >
+                        Группа продолжения
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                     <div>
                       <div className="mb-3 flex items-center justify-between">
@@ -641,13 +1214,6 @@ export default function Groups() {
                         </Table>
                       </div>
                     </div>
-                    <div className="rounded-lg border bg-muted/20 p-4">
-                      <h3 className="mb-2 font-medium">Комментарий группы</h3>
-                      <Textarea
-                        placeholder="Заметка для администраторов…"
-                        defaultValue="Курс идёт по плану. Следующая проверка набора — в конце недели."
-                      />
-                    </div>
                   </div>
                 </ScrollArea>
               ) : (
@@ -659,6 +1225,161 @@ export default function Groups() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={startGroupOpen} onOpenChange={setStartGroupOpen}>
+        <DialogContent className="flex h-[78vh] max-w-5xl flex-col gap-0 p-0">
+          <DialogHeader className="border-b px-8 py-7">
+            <DialogTitle className="text-center text-xl">
+              Старт группы {selected ? getGroupTitle(selected) : ""}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Сообщение и контактные данные преподавателя перед стартом группы
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="space-y-0 px-8 py-4">
+              <div className="mb-4 max-w-xl overflow-hidden rounded-lg border">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Студент</TableHead><TableHead>Статус</TableHead><TableHead>Контакты</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {roster.map((student) => (
+                      <TableRow key={student.id}>
+                        <TableCell className="font-medium text-teal-700">{student.name}</TableCell>
+                        <TableCell><div className="flex gap-1">{paymentBadges(workspace.paymentMarks[`${selected?.id}:${student.id}`] || ["studying"])}</div></TableCell>
+                        <TableCell className="text-xs"><p>{student.phone}</p><p className="text-muted-foreground">{student.email}</p></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-4 border-b py-4">
+                <Label className="pt-2 text-sm font-semibold text-muted-foreground">
+                  Сообщение преподавателю
+                </Label>
+                <Textarea
+                  className="min-h-[145px] resize-y"
+                  value={startGroupForm.teacherMessage}
+                  onChange={(event) =>
+                    setStartGroupForm((current) => ({
+                      ...current,
+                      teacherMessage: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-4 border-b py-6">
+                <Label className="pt-2 text-sm font-semibold text-muted-foreground">
+                  E-mail преподавателя
+                </Label>
+                <Input
+                  type="email"
+                  aria-invalid={Boolean(startEmailError)}
+                  className={cn(startEmailError && "border-red-500 focus-visible:ring-red-500")}
+                  value={startGroupForm.teacherEmail}
+                  onChange={(event) => {
+                    setStartEmailError("");
+                    setStartGroupForm((current) => ({
+                      ...current,
+                      teacherEmail: event.target.value,
+                    }));
+                  }}
+                />
+                {startEmailError && (
+                  <p className="col-start-2 text-xs text-red-600">{startEmailError}</p>
+                )}
+              </div>
+            </div>
+          </ScrollArea>
+          <div className="flex items-end justify-between gap-4 border-t px-5 py-3">
+            <div className="min-w-0 flex-1" role="alert" aria-live="polite">
+              {startValidationErrors.length > 0 && (
+                <div className="max-h-28 space-y-1 overflow-y-auto text-sm text-red-600">
+                  {startValidationErrors.map((error) => (
+                    <p key={error}>{error}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button variant="outline" onClick={() => setStartGroupOpen(false)}>
+                Отмена
+              </Button>
+              <Button
+                className="bg-[#df7b6c] hover:bg-[#ce695a]"
+                onClick={startGroup}
+              >
+                Стартовать группу!
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={cancelGroupOpen} onOpenChange={setCancelGroupOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Вы уверены, что хотите отменить старт группы? Проверьте себя!</DialogTitle>
+            <DialogDescription>Это действие вернёт группу в состояние формирования.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 text-sm">
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <p className="mb-2 font-medium">После подтверждения:</p>
+              <ul className="list-disc space-y-1.5 pl-5 text-muted-foreground">
+                <li>группа снова будет отмечена как не стартованная;</li>
+                <li>автоматически созданная группа продолжения будет удалена;</li>
+                <li>связь с продолжением будет удалена;</li>
+                <li>занятия вернутся к оформлению периода формирования;</li>
+                <li>в комментариях появится запись об отмене старта.</li>
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <Label>Сообщение преподавателю (необязательно)</Label>
+              <Textarea className="min-h-28" value={cancelGroupForm.teacherMessage} onChange={(event) => setCancelGroupForm((current) => ({ ...current, teacherMessage: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>E-mail преподавателя</Label>
+              <Input type="email" aria-invalid={Boolean(cancelEmailError)} className={cn(cancelEmailError && "border-red-500 focus-visible:ring-red-500")} value={cancelGroupForm.teacherEmail} onChange={(event) => { setCancelEmailError(""); setCancelGroupForm((current) => ({ ...current, teacherEmail: event.target.value })); }} placeholder="Можно оставить пустым, если письмо не требуется" />
+              {cancelEmailError && <p className="text-xs text-red-600">{cancelEmailError}</p>}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCancelGroupOpen(false)}>Не отменять</Button>
+              <Button className="bg-slate-600 hover:bg-slate-700" onClick={cancelGroupStart}>Отменить старт группы</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(startSummary)} onOpenChange={(open) => !open && setStartSummary(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Группа стартована</DialogTitle>
+            <DialogDescription>
+              Операция завершена, связанные данные подготовлены.
+            </DialogDescription>
+          </DialogHeader>
+          {startSummary && (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <dl className="grid grid-cols-[180px_1fr] gap-x-4 gap-y-2">
+                  <dt className="text-muted-foreground">Стартовала группа</dt><dd className="font-medium">{startSummary.startedGroup}</dd>
+                  <dt className="text-muted-foreground">Создано продолжение</dt><dd className="font-medium">{startSummary.continuationGroup}</dd>
+                  <dt className="text-muted-foreground">Преподаватель</dt><dd>{startSummary.teacher}</dd>
+                  <dt className="text-muted-foreground">E-mail</dt><dd>{startSummary.email}</dd>
+                  <dt className="text-muted-foreground">Письмо и PDF</dt><dd>Подготовлены к отправке</dd>
+                  <dt className="text-muted-foreground">Расписание</dt><dd>Занятия проверены и статусы обновлены</dd>
+                </dl>
+              </div>
+              <div>
+                <p className="mb-2 font-semibold">Студенты ({startSummary.students.length})</p>
+                <p className="text-muted-foreground">{startSummary.students.join(", ") || "В группе нет студентов"}</p>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button onClick={() => setStartSummary(null)}>ОК</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="flex max-h-[94vh] max-w-6xl flex-col p-0">
@@ -686,8 +1407,13 @@ export default function Groups() {
                   <TabsContent value="data" className="m-0 space-y-0">
                     <ReferenceField label="Номер группы">
                       <Input
-                        disabled
                         value={String(editDraft.code || "").replace("26-", "")}
+                        onChange={(e) =>
+                          setEditDraft((current) => ({
+                            ...current,
+                            code: e.target.value,
+                          }))
+                        }
                       />
                     </ReferenceField>
                     <ReferenceField label="Дата начала">
@@ -830,6 +1556,35 @@ export default function Groups() {
                         }
                       />
                     </ReferenceField>
+                    <ReferenceField label="Формат">
+                      <Select
+                        value={groupFormat(editDraft as RealGroup)}
+                        onValueChange={(value) =>
+                          setEditDraft((current) => ({
+                            ...current,
+                            schedule: (current.schedule || []).map((item) =>
+                              value === "ОН"
+                                ? {
+                                    ...item,
+                                    classroom: undefined,
+                                    zoomRoom: item.zoomRoom || "Онлайн",
+                                  }
+                                : {
+                                    ...item,
+                                    zoomRoom: undefined,
+                                    classroom: item.classroom || "Офлайн",
+                                  },
+                            ),
+                          }))
+                        }
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ОФ">Офлайн</SelectItem>
+                          <SelectItem value="ОН">Онлайн</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </ReferenceField>
                     <ReferenceField label="Максимум студентов">
                       <Input
                         type="number"
@@ -854,7 +1609,27 @@ export default function Groups() {
                       return (
                         <div key={day} className="border-b py-4 last:border-0">
                           <div className="flex items-center gap-2">
-                            <Checkbox checked={Boolean(item)} />
+                            <Checkbox
+                              checked={Boolean(item)}
+                              onCheckedChange={(checked) =>
+                                setEditDraft((current) => ({
+                                  ...current,
+                                  schedule: checked
+                                    ? [
+                                        ...(current.schedule || []),
+                                        {
+                                          dayOfWeek: day,
+                                          startTime: "19:00",
+                                          endTime: "20:30",
+                                          classroom: "Офлайн",
+                                        },
+                                      ].sort((a, b) => a.dayOfWeek - b.dayOfWeek)
+                                    : (current.schedule || []).filter(
+                                        (entry) => entry.dayOfWeek !== day,
+                                      ),
+                                }))
+                              }
+                            />
                             <span className="font-medium">
                               {
                                 [
@@ -874,7 +1649,16 @@ export default function Groups() {
                               <Input
                                 type="time"
                                 value={item.startTime}
-                                readOnly
+                                onChange={(e) =>
+                                  setEditDraft((current) => ({
+                                    ...current,
+                                    schedule: (current.schedule || []).map((entry) =>
+                                      entry.dayOfWeek === day
+                                        ? { ...entry, startTime: e.target.value }
+                                        : entry,
+                                    ),
+                                  }))
+                                }
                               />
                               <Select defaultValue="3">
                                 <SelectTrigger>
@@ -889,7 +1673,16 @@ export default function Groups() {
                               <Input
                                 type="time"
                                 value={item.endTime}
-                                readOnly
+                                onChange={(e) =>
+                                  setEditDraft((current) => ({
+                                    ...current,
+                                    schedule: (current.schedule || []).map((entry) =>
+                                      entry.dayOfWeek === day
+                                        ? { ...entry, endTime: e.target.value }
+                                        : entry,
+                                    ),
+                                  }))
+                                }
                               />
                               <Input
                                 value={
@@ -925,15 +1718,18 @@ export default function Groups() {
                         ]?.endTime || "20:30"}
                       </p>
                     ))}
-                    <div className="pt-4">
-                      <Button onClick={saveGroup}>
-                        Обновить группу и переформатировать занятия
-                      </Button>
-                    </div>
                   </TabsContent>
                 </div>
               </ScrollArea>
               <GroupEditPreview group={editDraft} />
+            </div>
+            <div className="flex justify-end gap-2 border-t px-6 py-3">
+              <Button variant="outline" onClick={() => setEditOpen(false)}>
+                Отмена
+              </Button>
+              <Button onClick={saveGroup}>
+                Обновить группу и переформатировать занятия
+              </Button>
             </div>
           </Tabs>
         </DialogContent>
@@ -1568,113 +2364,80 @@ function StudentProfile({
 }) {
   return (
     <Dialog open={Boolean(student)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
+      <DialogContent className="h-[88vh] w-[calc(100vw-3rem)] max-w-[1500px] overflow-hidden p-0">
         {student && (
           <>
-            <DialogHeader>
-              <div className="flex items-center gap-3">
-                <Avatar className="h-12 w-12">
-                  <AvatarFallback className="bg-teal-100 text-teal-700">
-                    {student.name
-                      .split(" ")
-                      .map((item) => item[0])
-                      .join("")
-                      .slice(0, 2)}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <DialogTitle>{student.name}</DialogTitle>
-                  <DialogDescription>Профиль студента</DialogDescription>
-                </div>
-              </div>
+            <DialogHeader className="border-b px-7 py-6 text-center sm:text-center">
+              <DialogTitle className="text-2xl">{student.name}</DialogTitle>
+              <DialogDescription className="sr-only">Профиль студента</DialogDescription>
             </DialogHeader>
-            <div className="flex flex-wrap items-center gap-2 border-y py-3">
-              <Select
-                value={state}
-                onValueChange={(value) => onState(value as StudentState)}
-              >
-                <SelectTrigger className="w-44">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["Учится", "Думает", "Ожидает", "Закончил", "Отказался"].map(
-                    (value) => (
-                      <SelectItem key={value} value={value}>
-                        {value}
-                      </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() =>
-                  toast.info(
-                    "Загрузка файлов будет подключена на следующем этапе",
-                  )
-                }
-              >
-                <FileUp className="h-4 w-4" />
-                Файл
-              </Button>
-              <Button className="gap-2" onClick={() => onTask(student)}>
-                <Plus className="h-4 w-4" />
-                Задачу
-              </Button>
-            </div>
-            <div className="grid gap-5 md:grid-cols-[1fr_1.2fr]">
-              <div className="space-y-4">
-                <section className="rounded-lg border p-4">
-                  <h3 className="mb-3 font-semibold">Основная информация</h3>
-                  <dl className="grid grid-cols-[110px_1fr] gap-y-2 text-sm">
+            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,2fr)_minmax(330px,1fr)]">
+              <ScrollArea className="h-full border-r">
+                <div className="p-7">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold">Статус:</span>
+                    <Select value={state} onValueChange={(value) => onState(value as StudentState)}>
+                      <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+                      <SelectContent>{["Учится", "Думает", "Ожидает", "Закончил", "Отказался"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="gap-2" onClick={() => toast.info("Загрузка файлов будет подключена на следующем этапе")}><FileUp className="h-4 w-4" />Файл</Button>
+                    <Button className="gap-2" onClick={() => onTask(student)}><Plus className="h-4 w-4" />Задача</Button>
+                    <Button variant="outline" className="gap-2"><Edit3 className="h-4 w-4" />Редактировать</Button>
+                  </div>
+                </div>
+                <section>
+                  <dl className="grid grid-cols-[145px_minmax(0,1fr)_150px_minmax(0,1fr)] gap-x-5 gap-y-2 text-sm">
                     <dt className="text-muted-foreground">Телефон</dt>
                     <dd>{student.phone || "—"}</dd>
+                    <dt className="text-muted-foreground">Адрес</dt><dd>—</dd>
                     <dt className="text-muted-foreground">Email</dt>
                     <dd>{student.email || "—"}</dd>
+                    <dt className="text-muted-foreground">Паспорт</dt><dd>—</dd>
                     <dt className="text-muted-foreground">Дата рождения</dt>
                     <dd>
                       {student.birthDate
                         ? format(new Date(student.birthDate), "dd.MM.yyyy")
                         : "—"}
                     </dd>
+                    <dt className="text-muted-foreground">Серия и номер</dt><dd>—</dd>
                     <dt className="text-muted-foreground">Профессия</dt>
                     <dd>{student.profession || "—"}</dd>
+                    <dt className="text-muted-foreground">Кем выдан и когда</dt><dd>—</dd>
                     <dt className="text-muted-foreground">Источник</dt>
                     <dd>{student.howDidYouKnow || "—"}</dd>
+                    <dt className="text-muted-foreground">Комментарий</dt><dd>{student.notes || "—"}</dd>
                     <dt className="text-muted-foreground">Скидки</dt>
                     <dd>{student.discounts || "—"}</dd>
+                    <dt className="text-muted-foreground"></dt><dd></dd>
+                    <dt className="font-semibold">Немецкий</dt><dd></dd><dt className="font-semibold">Английский</dt><dd></dd>
+                    <dt className="text-muted-foreground">Уровень</dt><dd>{student.germanLevel || (student.language === "German" ? student.currentLevel : "Не выбран")}</dd>
+                    <dt className="text-muted-foreground">Уровень</dt><dd>{student.englishLevel || (student.language === "English" ? student.currentLevel : "Не выбран")}</dd>
                   </dl>
                 </section>
-                <section className="rounded-lg border p-4">
-                  <h3 className="mb-3 font-semibold">Группы студента</h3>
-                  <div className="space-y-2">
+                <section className="mt-7 border-t pt-4">
+                  <Tabs defaultValue="groups">
+                    <TabsList className="bg-transparent"><TabsTrigger value="groups">Группы</TabsTrigger><TabsTrigger value="tasks">Задачи</TabsTrigger><TabsTrigger value="files">Файлы</TabsTrigger><TabsTrigger value="payments">Оплаты</TabsTrigger></TabsList>
+                    <TabsContent value="groups" className="overflow-hidden rounded-md border">
+                    <Table><TableHeader><TableRow><TableHead>Статус</TableHead><TableHead>Название</TableHead><TableHead>Начало</TableHead><TableHead>Конец</TableHead></TableRow></TableHeader><TableBody>
                     {groups.length ? (
                       groups.map((group) => (
-                        <div
-                          key={group.id}
-                          className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"
-                        >
-                          <div>
-                            <p className="font-medium">{group.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              #{group.code} · {group.level}
-                            </p>
-                          </div>
-                          <Badge className="bg-lime-500">Учится</Badge>
-                        </div>
+                        <TableRow key={group.id}><TableCell><Badge className="bg-lime-500">Учится</Badge></TableCell><TableCell className="font-medium text-teal-700">{group.name}</TableCell><TableCell>{format(new Date(group.startDate), "dd.MM.yyyy")}</TableCell><TableCell>{format(new Date(group.endDate), "dd.MM.yyyy")}</TableCell></TableRow>
                       ))
                     ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Сейчас не зачислен ни в одну группу. Профиль сохранён.
-                      </p>
+                      <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Сейчас не зачислен ни в одну группу</TableCell></TableRow>
                     )}
-                  </div>
+                    </TableBody></Table>
+                    </TabsContent>
+                  </Tabs>
                 </section>
-              </div>
-              <section className="rounded-lg border p-4">
+                </div>
+              </ScrollArea>
+              <section className="flex min-h-0 flex-col p-6">
                 <h3 className="mb-3 font-semibold">Заметки и история</h3>
-                <div className="space-y-3">
+                <ScrollArea className="min-h-0 flex-1 border-y pr-3"><div className="space-y-3 py-3">
                   {student.notes && (
                     <div className="rounded-lg bg-muted p-3 text-sm">
                       {student.notes}
@@ -1690,7 +2453,7 @@ function StudentProfile({
                         </p>
                       </div>
                     ))}
-                </div>
+                </div></ScrollArea>
                 <Textarea
                   className="mt-4 min-h-28"
                   placeholder="Добавить внутренний комментарий…"

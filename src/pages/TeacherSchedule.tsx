@@ -100,6 +100,13 @@ function formatRoomKey(key: string | undefined): string {
 }
 
 export default function TeacherSchedule() {
+  const startedGroups: Record<string, { firstLessonDate: string; format: 'online' | 'offline' }> = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('dk-started-groups-v1') || '{}');
+    } catch {
+      return {};
+    }
+  })();
   const [selectedTeacher, setSelectedTeacher] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -1797,12 +1804,23 @@ export default function TeacherSchedule() {
 
                         {/* Schedule items */}
                         {dayItems.map(item => {
-                          const effectiveStatus = item.status === 'cancelled' ? 'cancelled' :
+                          const startedGroup = item.groupId ? startedGroups[item.groupId] : undefined;
+                          const isStartedFirstLesson = Boolean(
+                            startedGroup && format(day, 'yyyy-MM-dd') === startedGroup.firstLessonDate,
+                          );
+                          const effectiveStatus = startedGroup ? (isStartedFirstLesson ? 'group_start' : 'unavailable') :
+                            item.status === 'cancelled' ? 'cancelled' :
                             onVacation && item.status !== 'replacement' ? 'needs_replacement' :
                             item.status;
 
-                          const style = getStatusStyle(effectiveStatus);
-                          const typeColor = getScheduleCardColors(item.type, item.format, effectiveStatus);
+                          const style = startedGroup ? getStatusStyle('unavailable') : getStatusStyle(effectiveStatus);
+                          const typeColor = startedGroup
+                            ? isStartedFirstLesson
+                              ? { bg: '#DD7E6A', border: '#C96956', text: '#111827', badge: '#C96956' }
+                              : startedGroup.format === 'online'
+                                ? { bg: '#F1E9FF', border: '#C4B5FD', text: '#111827', badge: '#8B5CF6' }
+                                : { bg: '#FFFFFF', border: '#D1D5DB', text: '#111827', badge: '#9CA3AF' }
+                            : getScheduleCardColors(item.type, item.format, effectiveStatus);
                           const start = parseTime(item.startTime);
                           const displayEndStr = resizePreview?.id === item.id ? resizePreview.endTime : item.endTime;
                           const end = parseTime(displayEndStr);
@@ -1814,7 +1832,7 @@ export default function TeacherSchedule() {
                           const level = item.groupLevel || '';
                           const groupName = item.groupName || '';
                           const active = isCurrentTime(day, start, end);
-                          const isCancelled = item.status === 'cancelled';
+                          const isCancelled = !startedGroup && item.status === 'cancelled';
                           const hasLessonComment = !!item.comment;
                           const isPast = day < new Date(new Date().toDateString()) && !isSameDay(day, new Date());
                           const isUpcoming = !isPast && !active && !isCancelled && isSameDay(day, new Date());
