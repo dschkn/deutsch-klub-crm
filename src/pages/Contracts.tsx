@@ -68,7 +68,7 @@ import {
   downloadBase64,
 } from '../lib/docxTemplate';
 
-const allGroupCategories: GroupCategory[] = ['standard', 'mini', 'special', 'individual'];
+const allGroupCategories: GroupCategory[] = ['standard', 'intensive', 'special', 'individual'];
 const allAgeBrackets: AgeBracket[] = ['child', 'teen', 'adult'];
 
 const variablesList = [

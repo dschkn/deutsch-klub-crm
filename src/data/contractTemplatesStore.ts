@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { extractTemplateVariables, urlToBase64 } from '../lib/docxTemplate';
 
 export type Lang = 'ru' | 'de' | 'en';
-export type GroupCategory = 'standard' | 'mini' | 'special' | 'individual';
+export type GroupCategory = 'standard' | 'intensive' | 'special' | 'individual';
 export type AgeBracket = 'child' | 'teen' | 'adult';
 
 export interface ContractTemplate {
@@ -27,7 +27,7 @@ export const languageConfig: Record<Lang, { label: string; color: string }> = {
 
 export const groupCategoryConfig: Record<GroupCategory, { label: string; color: string }> = {
   standard: { label: 'Стандартные', color: 'bg-slate-50 text-slate-600 border-slate-200' },
-  mini: { label: 'Мини', color: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
+  intensive: { label: 'Интенсивы', color: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
   special: { label: 'Спецкурсы', color: 'bg-orange-50 text-orange-700 border-orange-200' },
   individual: { label: 'Индивы', color: 'bg-purple-50 text-purple-700 border-purple-200' },
 };
@@ -61,6 +61,10 @@ export const fieldLabels: Record<string, string> = {
   parentAddress: 'Адрес регистрации родителя',
   parentEmail: 'Email родителя',
   parentPhone: 'Телефон родителя',
+  refundTerms: 'Условия возврата',
+  tiersClause: 'Пункт 3.4 (объём по числу учащихся)',
+  datesIfThree: 'Даты при 3 учащихся (п.10)',
+  datesIfFourPlus: 'Даты при 4+ учащихся (п.10)',
 };
 
 export const loopLabels: Record<string, string> = {
@@ -82,7 +86,7 @@ const initialTemplates: ContractTemplate[] = [
     name: 'Договор обучения (взрослые)',
     fileName: 'contract_adult_ru.docx',
     language: 'en',
-    groupCategories: ['standard', 'mini'],
+    groupCategories: ['standard'],
     ageBrackets: ['adult'],
     sortOrder: 1,
     fields: ['currentDate', 'number', 'studentFIO', 'studentDate', 'passport', 'passportWho', 'address', 'email', 'phone', 'level', 'volume', 'duration', 'price'],
@@ -94,7 +98,7 @@ const initialTemplates: ContractTemplate[] = [
     name: 'Договор обучения (дети)',
     fileName: 'contract_child_ru.docx',
     language: 'ru',
-    groupCategories: ['standard', 'mini'],
+    groupCategories: ['standard'],
     ageBrackets: ['child', 'teen'],
     sortOrder: 2,
     fields: ['currentDate', 'number', 'studentFIO', 'studentDate', 'parentFIO', 'parentDate', 'parentPassport', 'parentPhone', 'level', 'volume', 'price', 'admin'],
@@ -136,6 +140,18 @@ const initialTemplates: ContractTemplate[] = [
     fields: ['currentDate', 'number', 'studentFIO', 'email', 'phone', 'level', 'volume', 'price'],
     loops: [],
     createdAt: new Date('2024-03-01'),
+  },
+  {
+    id: '6',
+    name: 'Договор интенсив (взрослые)',
+    fileName: 'contract_intensive_ru.docx',
+    language: 'ru',
+    groupCategories: ['intensive'],
+    ageBrackets: ['adult'],
+    sortOrder: 6,
+    fields: ['currentDate', 'number', 'studentFIO', 'studentDate', 'passport', 'passportWho', 'address', 'email', 'phone', 'level', 'volume', 'duration', 'price'],
+    loops: ['days', 'months', 'dates'],
+    createdAt: new Date('2024-03-05'),
   },
 ];
 

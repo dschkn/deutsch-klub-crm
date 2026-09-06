@@ -9,13 +9,17 @@ const dayNames = ['Воскресенье', 'Понедельник', 'Втор�
 
 export function courseTypeToGroupCategory(courseType: string): GroupCategory {
   switch (courseType) {
+    // Все английские группы — это мини-группы (2-3 чел.), а не отдельный вид договора;
+    // по базе знаний школы это всё ещё "Стандартный" договор.
     case 'mini':
-      return 'mini';
+    case 'lesson':
+      return 'standard';
     case 'individual':
     case 'trial':
     case 'testing':
       return 'individual';
     case 'intensive':
+      return 'intensive';
     case 'phonetics':
     case 'club':
       return 'special';
@@ -66,25 +70,192 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+// ============================================================
+//  ТАБЛИЦА ТИРОВ — «Объём курсов и расчасовки» (база знаний)
+// ============================================================
+//
+// Часы в договоре — это не текущие часы группы, а минимум, положенный по
+// таблице школы: язык + уровень + тип дня (будни / суббота-утро) + число
+// учащихся. Дальше — поправки на исключение В1.1(нем)/В1+1ч(англ), детские
+// группы (югенды) и интенсивы.
+
+type DayType = 'weekday' | 'saturday_morning';
+type LevelBand = 'low' | 'high' | 'exception';
+type HeadcountBand = '2' | '3' | '4-8' | '9-12';
+
+const HOURS_TABLE: Record<DayType, Record<LevelBand, Record<HeadcountBand, number>>> = {
+  weekday: {
+    low: { '2': 36, '3': 48, '4-8': 60, '9-12': 72 },
+    high: { '2': 24, '3': 36, '4-8': 48, '9-12': 48 },
+    exception: { '2': 48, '3': 60, '4-8': 60, '9-12': 72 },
+  },
+  saturday_morning: {
+    low: { '2': 35, '3': 50, '4-8': 60, '9-12': 70 },
+    high: { '2': 25, '3': 35, '4-8': 50, '9-12': 50 },
+    exception: { '2': 48, '3': 60, '4-8': 60, '9-12': 72 },
+  },
+};
+
+/** Суббота-утро — единственная группа, где действует отдельная таблица (кратно 5); группы по
+ * субботам, но с 15:00 и позже, по базе знаний считаются как будние ("Суббота день — см. будни"). */
+function getDayType(group: RealGroup): DayType {
+  if (group.schedule.length === 0) return 'weekday';
+  const allSaturdayMorning = group.schedule.every((s) => {
+    const hour = Number(s.startTime.split(':')[0]);
+    return s.dayOfWeek === 6 && hour < 15;
+  });
+  return allSaturdayMorning ? 'saturday_morning' : 'weekday';
+}
+
+/** Немецкий В1.1 и английский "В1+ 1ч" стоят особняком с более высоким минимумом часов
+ * (у взрослых). Определяем эвристически по уровню и названию группы. */
+function getLevelBand(group: RealGroup, isYouth: boolean): LevelBand {
+  const level = group.level.toUpperCase().replace(/\s+/g, '');
+  const name = group.name.toUpperCase();
+
+  if (!isYouth) {
+    const isGermanB11 = group.language === 'German' && level.startsWith('B1.1');
+    const isEnglishB1Plus1h = group.language === 'English' && level.startsWith('B1+') && name.includes('1Ч');
+    if (isGermanB11 || isEnglishB1Plus1h) return 'exception';
+  }
+
+  return /^(B2|C1|C2)/.test(level) ? 'high' : 'low';
+}
+
+function getHeadcountBand(count: number): HeadcountBand {
+  if (count <= 2) return '2';
+  if (count === 3) return '3';
+  if (count <= 8) return '4-8';
+  return '9-12';
+}
+
+export interface CourseHoursResult {
+  /** Объём курса для §2.3 — ВСЕГДА минимум на 2 человека для этого языка/уровня/дня. */
+  hours: number;
+  dayType: DayType;
+  levelBand: LevelBand;
+  /** Полный текст пункта 3.4 — сколько часов при 3 / 4-8 / (9-12, кроме югендов) учащихся. */
+  tiersClause: string;
+  /** Условия возврата — свои для субботних и для будних групп. */
+  refundTerms: string;
+  /** Даты, которые добавятся к графику при выходе группы на 3 человека (для "При кол-ве чел. в группе =3"). */
+  datesIfThree: string;
+  /** Даты, которые добавятся при выходе на 4 и более человек. */
+  datesIfFourPlus: string;
+}
+
+/**
+ * Считает объём курса (в ак.ч.) для договора. По правилам школы §2.3 всегда фиксирует
+ * АБСОЛЮТНЫЙ минимум для языка/уровня/типа дня — тир на 2 человека, — независимо от того,
+ * сколько учеников уже реально в группе; рост группы описывает отдельно пункт 3.4.
+ * Бонус +3 ак.ч. на уровне B1.2 — только для немецкого, английского не касается.
+ */
+/** Часы для конкретного числа учащихся (2-12), с поправками на югенд-группы (9-12 сливается
+ * с 4-8), бонус B1.2 и потолок интенсивов. */
+function hoursForHeadcount(
+  table: Record<HeadcountBand, number>,
+  count: number,
+  isYouth: boolean,
+  bonus: number,
+  cap: number
+): number {
+  const band = getHeadcountBand(count);
+  const effectiveBand = isYouth && band === '9-12' ? '4-8' : band;
+  return Math.min(table[effectiveBand] + bonus, cap);
+}
+
+function countLabel(from: number, to: number): string {
+  if (from === to) {
+    return `${from} ${from <= 4 ? 'человека' : 'человек'}`;
+  }
+  return `${from}-${to} человек`;
+}
+
+/**
+ * Пункт 3.4 — всегда начинается с 2 человек и дальше по факту: считаем часы для каждого
+ * размера группы от 2 до 12 и схлопываем подряд идущие одинаковые значения в один диапазон
+ * (например, для B2-C1 3.4 сводится к "2 / 3 / 4-12", а для исключения B1.1 — к "2 / 3-8 / 9-12"),
+ * вместо того чтобы жёстко считать, что тиры всегда "2, 3, 4-8, 9-12".
+ */
+function buildTiersClause(table: Record<HeadcountBand, number>, isYouth: boolean, bonus: number, cap: number): string {
+  const groups: { from: number; to: number; hours: number }[] = [];
+  for (let count = 2; count <= 12; count += 1) {
+    const hours = hoursForHeadcount(table, count, isYouth, bonus, cap);
+    const last = groups[groups.length - 1];
+    if (last && last.hours === hours) {
+      last.to = count;
+    } else {
+      groups.push({ from: count, to: count, hours });
+    }
+  }
+  return groups
+    .map(
+      (g) =>
+        `В случае если количество учащихся в группе составляет ${countLabel(g.from, g.to)}, объём курса составляет ${g.hours} академических часов.`
+    )
+    .join(' ');
+}
+
+export function computeCourseHours(group: RealGroup, ageBracket: AgeBracket): CourseHoursResult {
+  const isYouth = ageBracket !== 'adult';
+  const dayType = getDayType(group);
+  const levelBand = getLevelBand(group, isYouth);
+  const table = HOURS_TABLE[dayType][levelBand];
+  const isB12 = group.level.toUpperCase().replace(/\s+/g, '').startsWith('B1.2');
+  const b12Bonus = !isYouth && group.language === 'German' && isB12 ? 3 : 0;
+  const intensiveCap = group.courseType === 'intensive' ? (levelBand === 'high' ? 48 : 60) : Infinity;
+
+  const hours = hoursForHeadcount(table, 2, isYouth, b12Bonus, intensiveCap);
+  const threeValue = hoursForHeadcount(table, 3, isYouth, b12Bonus, intensiveCap);
+  const fourPlusValue = hoursForHeadcount(table, 4, isYouth, b12Bonus, intensiveCap);
+
+  const tiersClause = buildTiersClause(table, isYouth, b12Bonus, intensiveCap);
+
+  const refundTerms =
+    dayType === 'saturday_morning'
+      ? 'В субботних группах: 15% стоимости удерживается при отказе после 1-го занятия (до 2-го), 30% — после 2-го занятия (до 3-го).'
+      : 'В группах буднего дня: 15% стоимости удерживается при отказе до 3-го занятия, 30% — до 5-го занятия.';
+
+  const perLessonHours = lessonDurationHoursNumber(group);
+  const { datesIfThree, datesIfFourPlus } = perLessonHours
+    ? computeIncrementalDates(group, perLessonHours, hours, threeValue, fourPlusValue)
+    : { datesIfThree: '', datesIfFourPlus: '' };
+
+  return { hours, dayType, levelBand, tiersClause, refundTerms, datesIfThree, datesIfFourPlus };
+}
+
+/** Every calendar date the group meets, in chronological order, from start to end of course. */
+function flatLessonDates(group: RealGroup): Date[] {
+  const daysOfWeek = new Set(group.schedule.map((s) => s.dayOfWeek));
+  const dates: Date[] = [];
+  if (daysOfWeek.size === 0) return dates;
+
+  const cursor = new Date(group.startDate);
+  cursor.setHours(0, 0, 0, 0);
+  const end = new Date(group.endDate);
+  end.setHours(0, 0, 0, 0);
+  let guard = 0;
+
+  while (cursor <= end && guard < 400) {
+    if (daysOfWeek.has(cursor.getDay())) {
+      dates.push(new Date(cursor));
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    guard += 1;
+  }
+  return dates;
+}
+
 /**
  * Groups the group's actual lesson dates by month: `months[i]` ("Июль 2026") pairs with
  * `dateLines[i]` — the day numbers of that month's lessons as one comma-separated string
  * ("03, 06, 10, ..."). The two arrays render side by side as a Месяц/Даты table in the template.
  */
 function scheduleByMonth(group: RealGroup): { months: string[]; dateLines: string[] } {
-  const daysOfWeek = new Set(group.schedule.map((s) => s.dayOfWeek));
   const months: string[] = [];
   const dateLines: string[] = [];
-  if (daysOfWeek.size === 0) return { months, dateLines };
-
-  const cursor = new Date(group.startDate);
-  cursor.setHours(0, 0, 0, 0);
-  const end = new Date(group.endDate);
-  end.setHours(0, 0, 0, 0);
-
   let currentMonthKey = '';
   let currentDays: string[] = [];
-  let guard = 0;
 
   const flush = () => {
     if (currentDays.length) {
@@ -93,38 +264,65 @@ function scheduleByMonth(group: RealGroup): { months: string[]; dateLines: strin
     }
   };
 
-  while (cursor <= end && guard < 400) {
-    if (daysOfWeek.has(cursor.getDay())) {
-      const monthKey = `${cursor.getFullYear()}-${cursor.getMonth()}`;
-      if (monthKey !== currentMonthKey) {
-        flush();
-        currentMonthKey = monthKey;
-        months.push(capitalize(format(cursor, 'LLLL yyyy', { locale: ru })));
-      }
-      currentDays.push(format(cursor, 'dd'));
+  for (const date of flatLessonDates(group)) {
+    const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+    if (monthKey !== currentMonthKey) {
+      flush();
+      currentMonthKey = monthKey;
+      months.push(capitalize(format(date, 'LLLL yyyy', { locale: ru })));
     }
-    cursor.setDate(cursor.getDate() + 1);
-    guard += 1;
+    currentDays.push(format(date, 'dd'));
   }
   flush();
 
   return { months, dateLines };
 }
 
-function lessonDurationHours(group: RealGroup): string {
+function lessonDurationHoursNumber(group: RealGroup): number {
   const item = group.schedule[0];
-  if (!item) return '';
+  if (!item) return 0;
   const [sh, sm] = item.startTime.split(':').map(Number);
   const [eh, em] = item.endTime.split(':').map(Number);
   const minutes = eh * 60 + em - (sh * 60 + sm);
-  if (minutes <= 0) return '';
-  const academicHours = minutes / 45;
+  return minutes > 0 ? minutes / 45 : 0;
+}
+
+function lessonDurationHours(group: RealGroup): string {
+  const academicHours = lessonDurationHoursNumber(group);
+  if (!academicHours) return '';
   return Number.isInteger(academicHours) ? String(academicHours) : academicHours.toFixed(1);
+}
+
+/**
+ * Даты, которые физически добавляются к графику занятий, когда группа дорастает до 3 человек,
+ * а затем до 4 и более — заполняет красную строку "При кол-ве чел. в группе = ..." в шаблоне,
+ * которую иначе admin считает и вписывает от руки.
+ */
+function computeIncrementalDates(
+  group: RealGroup,
+  perLessonHours: number,
+  baseHours: number,
+  threeHours: number,
+  fourPlusHours: number
+): { datesIfThree: string; datesIfFourPlus: string } {
+  const allDates = flatLessonDates(group);
+  const lessonsFor = (hours: number) => Math.round(hours / perLessonHours);
+  const n2 = lessonsFor(baseHours);
+  const n3 = lessonsFor(threeHours);
+  const n4 = lessonsFor(fourPlusHours);
+  const fmt = (d: Date) => format(d, 'dd.MM');
+
+  return {
+    datesIfThree: allDates.slice(n2, n3).map(fmt).join(', '),
+    datesIfFourPlus: allDates.slice(n3, n4).map(fmt).join(', '),
+  };
 }
 
 export interface GeneratedContractFile {
   blob: Blob;
   fileName: string;
+  /** Расчёт часов по таблице тиров — показываем админу, чтобы можно было свериться не открывая файл. */
+  summary: CourseHoursResult;
 }
 
 /** Builds a filled contract file for one student in one group, using only real, already-known data. */
@@ -138,6 +336,9 @@ export function buildContractFileForStudent(
     throw new Error('У шаблона нет загруженного файла');
   }
 
+  const ageBracket = getAgeBracket(student.birthDate);
+  const courseHours = computeCourseHours(group, ageBracket);
+
   const values: Record<string, string> = {};
   values.currentDate = format(new Date(), 'dd.MM.yyyy');
   values.studentFIO = student.name;
@@ -146,7 +347,11 @@ export function buildContractFileForStudent(
   if (student.birthDate) values.studentDate = format(student.birthDate, 'dd.MM.yyyy');
   values.level = student.germanLevel || student.englishLevel || student.currentLevel;
   if (group.price) values.price = `${group.price.toLocaleString('ru-RU')} руб.`;
-  if (group.hours) values.volume = String(group.hours);
+  values.volume = String(courseHours.hours);
+  values.tiersClause = courseHours.tiersClause;
+  values.refundTerms = courseHours.refundTerms;
+  values.datesIfThree = courseHours.datesIfThree;
+  values.datesIfFourPlus = courseHours.datesIfFourPlus;
   const duration = lessonDurationHours(group);
   if (duration) values.duration = duration;
   if (adminName) values.admin = adminName;
@@ -168,5 +373,5 @@ export function buildContractFileForStudent(
 
   const blob = renderContractDocx(template.fileBase64, { ...values, ...loopData });
   const fileName = `${template.fileName.replace(/\.docx$/i, '')}_${student.name.replace(/\s+/g, '_')}.docx`;
-  return { blob, fileName };
+  return { blob, fileName, summary: courseHours };
 }

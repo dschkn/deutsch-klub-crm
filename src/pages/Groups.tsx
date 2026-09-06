@@ -383,9 +383,11 @@ export default function Groups() {
 
   function handleGenerateContract(template: ContractTemplate, student: Student, group: RealGroup) {
     try {
-      const { blob, fileName } = buildContractFileForStudent(template, student, group, currentUser?.fullName);
+      const { blob, fileName, summary } = buildContractFileForStudent(template, student, group, currentUser?.fullName);
       downloadBlob(blob, fileName);
-      toast.success(`Договор для ${student.name} сформирован`);
+      toast.success(`Договор для ${student.name} сформирован`, {
+        description: `Мин. ${summary.hours} ак.ч. (${summary.dayType === 'saturday_morning' ? 'суббота утро' : 'будни'}, 2 чел.) · ${summary.refundTerms} · п.3.4: ${summary.tiersClause}`,
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сформировать договор");
     }
