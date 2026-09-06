@@ -71,6 +71,73 @@ function capitalize(s: string): string {
 }
 
 // ============================================================
+//  СУММА ПРОПИСЬЮ
+// ============================================================
+
+const ONES_MASC = ['', 'один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+const ONES_FEM = ['', 'одна', 'две', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+const TEENS = [
+  'десять', 'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать',
+  'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать',
+];
+const TENS = ['', '', 'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'шестьдесят', 'семьдесят', 'восемьдесят', 'девяносто'];
+const HUNDREDS = ['', 'сто', 'двести', 'триста', 'четыреста', 'пятьсот', 'шестьсот', 'семьсот', 'восемьсот', 'девятьсот'];
+
+function pluralRu(n: number, forms: [string, string, string]): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return forms[2];
+  const mod10 = n % 10;
+  if (mod10 === 1) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4) return forms[1];
+  return forms[2];
+}
+
+function threeDigitsToWords(n: number, feminine: boolean): string {
+  const words: string[] = [];
+  const hundreds = Math.floor(n / 100);
+  const rest = n % 100;
+  if (hundreds) words.push(HUNDREDS[hundreds]);
+  if (rest >= 10 && rest <= 19) {
+    words.push(TEENS[rest - 10]);
+  } else {
+    const tens = Math.floor(rest / 10);
+    const ones = rest % 10;
+    if (tens) words.push(TENS[tens]);
+    if (ones) words.push((feminine ? ONES_FEM : ONES_MASC)[ones]);
+  }
+  return words.join(' ');
+}
+
+/** "24 000" → "двадцать четыре тысячи рублей 00 копеек" — для строки "сумма прописью" в договоре. */
+export function amountToWordsRu(amount: number): string {
+  const intPart = Math.floor(amount);
+  const kopecks = Math.round((amount - intPart) * 100);
+
+  if (intPart === 0) return `Ноль рублей ${String(kopecks).padStart(2, '0')} коп.`;
+
+  const millions = Math.floor(intPart / 1_000_000);
+  const thousands = Math.floor((intPart % 1_000_000) / 1000);
+  const units = intPart % 1000;
+
+  const parts: string[] = [];
+  if (millions) {
+    parts.push(threeDigitsToWords(millions, false));
+    parts.push(pluralRu(millions, ['миллион', 'миллиона', 'миллионов']));
+  }
+  if (thousands) {
+    parts.push(threeDigitsToWords(thousands, true));
+    parts.push(pluralRu(thousands, ['тысяча', 'тысячи', 'тысяч']));
+  }
+  if (units || (!millions && !thousands)) {
+    parts.push(threeDigitsToWords(units, false));
+  }
+  parts.push(pluralRu(units, ['рубль', 'рубля', 'рублей']));
+  parts.push(`${String(kopecks).padStart(2, '0')} коп.`);
+
+  return capitalize(parts.filter(Boolean).join(' '));
+}
+
+// ============================================================
 //  ТАБЛИЦА ТИРОВ — «Объём курсов и расчасовки» (база знаний)
 // ============================================================
 //
@@ -269,13 +336,46 @@ function scheduleByMonth(group: RealGroup): { months: string[]; dateLines: strin
     if (monthKey !== currentMonthKey) {
       flush();
       currentMonthKey = monthKey;
-      months.push(capitalize(format(date, 'LLLL yyyy', { locale: ru })));
+      months.push(capitalize(format(date, 'LLLL', { locale: ru })));
     }
     currentDays.push(format(date, 'dd'));
   }
   flush();
 
   return { months, dateLines };
+}
+
+/**
+ * То же группирование по месяцам (без года, только номера дней), но как единая
+ * строка "Месяц\tдд, дд, дд" (месяц и его даты — на одной строке через таб, как в
+ * образце) — для красных вставок "При кол-ве чел. в группе = ..." в шаблоне, которые
+ * являются одним текстовым полем, а не циклом. Разные месяцы — каждый на своей строке.
+ */
+function formatDatesByMonth(dates: Date[]): string {
+  const blocks: string[] = [];
+  let currentMonthKey = '';
+  let currentMonthLabel = '';
+  let currentDays: string[] = [];
+
+  const flush = () => {
+    if (currentDays.length) {
+      blocks.push(`${currentMonthLabel}\t${currentDays.join(', ')}`);
+    }
+  };
+
+  for (const date of dates) {
+    const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+    if (monthKey !== currentMonthKey) {
+      flush();
+      currentMonthKey = monthKey;
+      currentMonthLabel = capitalize(format(date, 'LLLL', { locale: ru }));
+      currentDays = [];
+    }
+    currentDays.push(format(date, 'dd'));
+  }
+  flush();
+
+  return blocks.join('\n');
 }
 
 function lessonDurationHoursNumber(group: RealGroup): number {
@@ -310,11 +410,10 @@ function computeIncrementalDates(
   const n2 = lessonsFor(baseHours);
   const n3 = lessonsFor(threeHours);
   const n4 = lessonsFor(fourPlusHours);
-  const fmt = (d: Date) => format(d, 'dd.MM');
 
   return {
-    datesIfThree: allDates.slice(n2, n3).map(fmt).join(', '),
-    datesIfFourPlus: allDates.slice(n3, n4).map(fmt).join(', '),
+    datesIfThree: formatDatesByMonth(allDates.slice(n2, n3)),
+    datesIfFourPlus: formatDatesByMonth(allDates.slice(n3, n4)),
   };
 }
 
@@ -346,7 +445,10 @@ export function buildContractFileForStudent(
   values.phone = student.phone;
   if (student.birthDate) values.studentDate = format(student.birthDate, 'dd.MM.yyyy');
   values.level = student.germanLevel || student.englishLevel || student.currentLevel;
-  if (group.price) values.price = `${group.price.toLocaleString('ru-RU')} руб.`;
+  if (group.price) {
+    values.price = `${group.price.toLocaleString('ru-RU')} руб.`;
+    values.priceWords = amountToWordsRu(group.price);
+  }
   values.volume = String(courseHours.hours);
   values.tiersClause = courseHours.tiersClause;
   values.refundTerms = courseHours.refundTerms;

@@ -61,7 +61,7 @@ export interface Student {
   name: string;
   phone: string;
   email: string;
-  currentLevel: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+  currentLevel: string;
   language: 'German' | 'English';
   currentGroup?: Group;
   status: 'active' | 'inactive' | 'graduated' | 'frozen';
@@ -79,8 +79,8 @@ export interface Student {
   times?: string[];
   format?: 'online' | 'offline';
   isFriendForFriend?: boolean;
-  englishLevel?: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
-  germanLevel?: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+  englishLevel?: string;
+  germanLevel?: string;
   communications?: CommunicationItem[];
 }
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useDictionaryValues } from '../data/dictionariesStore';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -65,6 +66,8 @@ export default function Students() {
   const [filterLevel, setFilterLevel] = useState('all');
   const [filterSource, setFilterSource] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const levelOptions = useDictionaryValues('levels');
+  const sourceOptions = useDictionaryValues('sources');
 
   const allStudents = useMemo(() => getAllStudents(), []);
   const allGroups = useMemo(() => getAllGroups(), []);
@@ -161,12 +164,9 @@ export default function Students() {
           onChange={(e) => setFilterLevel(e.target.value)}
         >
           <option value="all">Все уровни</option>
-          <option value="A1">A1</option>
-          <option value="A2">A2</option>
-          <option value="B1">B1</option>
-          <option value="B2">B2</option>
-          <option value="C1">C1</option>
-          <option value="C2">C2</option>
+          {levelOptions.map((value) => (
+            <option key={value} value={value}>{value}</option>
+          ))}
         </select>
         <select
           className="h-9 rounded-md border border-border bg-white px-3 py-1 text-sm"
@@ -174,12 +174,9 @@ export default function Students() {
           onChange={(e) => setFilterSource(e.target.value)}
         >
           <option value="all">Откуда узнали</option>
-          <option value="instagram">Instagram</option>
-          <option value="vk">VK</option>
-          <option value="google">Google</option>
-          <option value="referral">Рекомендация</option>
-          <option value="website">Сайт</option>
-          <option value="yandex">Яндекс</option>
+          {sourceOptions.map((value) => (
+            <option key={value} value={value}>{value}</option>
+          ))}
         </select>
       </div>
 

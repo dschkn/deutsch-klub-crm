@@ -2,7 +2,19 @@ import type { Student } from '../types';
 import { demoScheduleAugust2026 } from './demoScheduleAugust2026';
 
 const levelCycle: Student['currentLevel'][] = ['A1', 'A1', 'A2', 'A2', 'B1', 'B1', 'B2', 'C1'];
-const sources = ['instagram', 'vk', 'google', 'referral', 'website', 'yandex'];
+const sources = [
+  'VK',
+  'Instagram',
+  'ТГ',
+  'Google поиск',
+  'Google карты',
+  'Яндекс поиск',
+  'Яндекс реклама (директ)',
+  'Сарафанное радио',
+  'Муж/Жена учатся',
+  'Дети учатся',
+  'Знакомые',
+];
 const days = [
   ['Пн', 'Ср'],
   ['Вт', 'Чт'],

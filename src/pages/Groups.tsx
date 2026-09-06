@@ -83,6 +83,7 @@ import { downloadBlob } from "../lib/docxTemplate";
 import { useCurrentUser } from "../hooks/use-auth";
 import { cn } from "../lib/utils";
 import type { Student } from "../types";
+import { useDictionaryValues } from "../data/dictionariesStore";
 
 const GROUPS_KEY = "dk-groups-workspace-v2";
 const TASKS_KEY = "dk-admin-kanban-v1";
@@ -262,6 +263,11 @@ function continuationRange(group: RealGroup) {
 export default function Groups() {
   const contractTemplates = useContractTemplates();
   const { user: currentUser } = useCurrentUser();
+  const levelOptions = useDictionaryValues("levels");
+  const sourceOptions = useDictionaryValues("sources");
+  const audienceOptions = useDictionaryValues("audiences");
+  const roomOptions = audienceOptions.filter((v) => !v.toLowerCase().includes("zoom"));
+  const zoomOptions = audienceOptions.filter((v) => v.toLowerCase().includes("zoom"));
   useEffect(() => {
     ensureRealTemplateLoaded();
   }, []);
@@ -1751,12 +1757,32 @@ export default function Groups() {
                                   }))
                                 }
                               />
-                              <Input
-                                value={
-                                  item.classroom || item.zoomRoom || "Аудитория"
+                              <Select
+                                value={item.classroom || item.zoomRoom || undefined}
+                                onValueChange={(value) =>
+                                  setEditDraft((current) => ({
+                                    ...current,
+                                    schedule: (current.schedule || []).map((entry) =>
+                                      entry.dayOfWeek === day
+                                        ? item.zoomRoom
+                                          ? { ...entry, zoomRoom: value }
+                                          : { ...entry, classroom: value }
+                                        : entry,
+                                    ),
+                                  }))
                                 }
-                                readOnly
-                              />
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Аудитория" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(item.zoomRoom ? zoomOptions : roomOptions).map((value) => (
+                                    <SelectItem key={value} value={value}>
+                                      {value}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                           )}
                         </div>
@@ -2042,13 +2068,7 @@ export default function Groups() {
                       <SelectValue placeholder="Выберите источник" />
                     </SelectTrigger>
                     <SelectContent>
-                      {[
-                        "Сайт",
-                        "Рекомендация",
-                        "VK",
-                        "Instagram",
-                        "Яндекс",
-                      ].map((value) => (
+                      {sourceOptions.map((value) => (
                         <SelectItem key={value} value={value}>
                           {value}
                         </SelectItem>
@@ -2134,7 +2154,7 @@ export default function Groups() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {["A1", "A2", "B1", "B2", "C1", "C2"].map((value) => (
+                      {levelOptions.map((value) => (
                         <SelectItem key={value} value={value}>
                           {value}
                         </SelectItem>

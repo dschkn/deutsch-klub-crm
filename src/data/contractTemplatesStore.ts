@@ -52,6 +52,7 @@ export const fieldLabels: Record<string, string> = {
   volume: 'Объём курса (ак. часов)',
   duration: 'Длительность занятия (ак. часов)',
   price: 'Стоимость',
+  priceWords: 'Стоимость прописью',
   admin: 'Администратор',
   proxy: 'Представитель по доверенности',
   parentFIO: 'ФИО родителя',

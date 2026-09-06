@@ -33,203 +33,60 @@ import {
   HelpCircle,
   Calendar,
   CheckSquare,
-  CreditCard,
-  Users,
+  DoorOpen,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import {
+  useDictionaries,
+  addDictionaryItem,
+  updateDictionaryItem,
+  removeDictionaryItem,
+  type Dictionary,
+  type DictionaryItem,
+} from '../data/dictionariesStore';
 
-interface DictionaryItem {
-  id: string;
-  value: string;
-  description?: string;
-  sortOrder: number;
-}
-
-interface Dictionary {
-  id: string;
-  name: string;
-  icon: typeof Clock;
-  items: DictionaryItem[];
-}
-
-const initialDictionaries: Dictionary[] = [
-  {
-    id: 'duration',
-    name: 'Длительность занятий',
-    icon: Clock,
-    items: [
-      { id: '1', value: '45 минут', sortOrder: 1 },
-      { id: '2', value: '60 минут', sortOrder: 2 },
-      { id: '3', value: '90 минут', sortOrder: 3 },
-      { id: '4', value: '120 минут', sortOrder: 4 },
-    ],
-  },
-  {
-    id: 'levels',
-    name: 'Уровни',
-    icon: BarChart3,
-    items: [
-      { id: '1', value: 'A1', description: 'Начальный', sortOrder: 1 },
-      { id: '2', value: 'A2', description: 'Элементарный', sortOrder: 2 },
-      { id: '3', value: 'B1', description: 'Средний', sortOrder: 3 },
-      { id: '4', value: 'B2', description: 'Средне-продвинутый', sortOrder: 4 },
-      { id: '5', value: 'C1', description: 'Продвинутый', sortOrder: 5 },
-      { id: '6', value: 'C2', description: 'В совершенстве', sortOrder: 6 },
-    ],
-  },
-  {
-    id: 'professions',
-    name: 'Профессии',
-    icon: Briefcase,
-    items: [
-      { id: '1', value: 'IT-специалист', sortOrder: 1 },
-      { id: '2', value: 'Менеджер', sortOrder: 2 },
-      { id: '3', value: 'Студент', sortOrder: 3 },
-      { id: '4', value: 'Педагог', sortOrder: 4 },
-      { id: '5', value: 'Медработник', sortOrder: 5 },
-    ],
-  },
-  {
-    id: 'rejection_reasons',
-    name: 'Причины отказа',
-    icon: XCircle,
-    items: [
-      { id: '1', value: 'Высокая цена', sortOrder: 1 },
-      { id: '2', value: 'Неудобное расписание', sortOrder: 2 },
-      { id: '3', value: 'Выбрал другого', sortOrder: 3 },
-      { id: '4', value: 'Нет времени', sortOrder: 4 },
-    ],
-  },
-  {
-    id: 'sources',
-    name: 'Откуда узнали',
-    icon: HelpCircle,
-    items: [
-      { id: '1', value: 'Instagram', sortOrder: 1 },
-      { id: '2', value: 'VK', sortOrder: 2 },
-      { id: '3', value: 'Google', sortOrder: 3 },
-      { id: '4', value: 'Рекомендация', sortOrder: 4 },
-      { id: '5', value: 'Сайт', sortOrder: 5 },
-      { id: '6', value: 'Яндекс', sortOrder: 6 },
-    ],
-  },
-  {
-    id: 'course_types',
-    name: 'Типы спецкурсов',
-    icon: BookOpen,
-    items: [
-      { id: '1', value: 'Грамматика', sortOrder: 1 },
-      { id: '2', value: 'Разговорный', sortOrder: 2 },
-      { id: '3', value: 'Деловой', sortOrder: 3 },
-      { id: '4', value: 'Подготовка к экзамену', sortOrder: 4 },
-    ],
-  },
-  {
-    id: 'holidays',
-    name: 'Выходные',
-    icon: Calendar,
-    items: [
-      { id: '1', value: '1 января - Новый год', sortOrder: 1 },
-      { id: '2', value: '8 марта', sortOrder: 2 },
-      { id: '3', value: '9 мая', sortOrder: 3 },
-    ],
-  },
-  {
-    id: 'task_templates',
-    name: 'Шаблоны задач',
-    icon: CheckSquare,
-    items: [
-      { id: '1', value: 'Позвонить клиенту', sortOrder: 1 },
-      { id: '2', value: 'Отправить материалы', sortOrder: 2 },
-      { id: '3', value: 'Подготовить договор', sortOrder: 3 },
-    ],
-  },
-  {
-    id: 'payment_assignments',
-    name: 'Назначения платежей',
-    icon: CreditCard,
-    items: [
-      { id: '1', value: 'Обучение', sortOrder: 1 },
-      { id: '2', value: 'Учебники', sortOrder: 2 },
-      { id: '3', value: 'Экзамен', sortOrder: 3 },
-      { id: '4', value: 'Клуб', sortOrder: 4 },
-    ],
-  },
-  {
-    id: 'payment_recipients',
-    name: 'Получатели платежей',
-    icon: Users,
-    items: [
-      { id: '1', value: 'ООО "Дойч-Клуб"', sortOrder: 1 },
-      { id: '2', value: 'ИП Иванов И.И.', sortOrder: 2 },
-    ],
-  },
-  {
-    id: 'textbooks',
-    name: 'Учебники',
-    icon: BookOpen,
-    items: [
-      { id: '1', value: 'Menschen A1', sortOrder: 1 },
-      { id: '2', value: 'Menschen A2', sortOrder: 2 },
-      { id: '3', value: 'Netzwerk B1', sortOrder: 3 },
-      { id: '4', value: 'English File B1', sortOrder: 4 },
-      { id: '5', value: 'Nuevo Ven A1', sortOrder: 5 },
-    ],
-  },
-];
+const dictionaryIcons: Record<string, typeof Clock> = {
+  duration: Clock,
+  levels: BarChart3,
+  professions: Briefcase,
+  rejection_reasons: XCircle,
+  sources: HelpCircle,
+  course_types: BookOpen,
+  holidays: Calendar,
+  task_templates: CheckSquare,
+  audiences: DoorOpen,
+  textbooks: BookOpen,
+};
 
 export default function Dictionaries() {
-  const [dictionaries, setDictionaries] = useState<Dictionary[]>(initialDictionaries);
-  const [selectedDict, setSelectedDict] = useState<Dictionary | null>(null);
+  const dictionaries = useDictionaries();
+  const [selectedDictId, setSelectedDictId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [editItem, setEditItem] = useState<DictionaryItem | null>(null);
   const [isAdding, setIsAdding] = useState(false);
 
-  const filteredItems = selectedDict?.items.filter(item =>
-    item.value.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
+  const selectedDict = dictionaries.find(d => d.id === selectedDictId) || null;
+
+  const filteredItems = (selectedDict
+    ? [...selectedDict.items].sort((a, b) => a.sortOrder - b.sortOrder)
+    : []
+  ).filter(item => item.value.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const handleAddItem = (value: string) => {
     if (!selectedDict || !value.trim()) return;
-    const newItem: DictionaryItem = {
-      id: Date.now().toString(),
-      value: value.trim(),
-      sortOrder: selectedDict.items.length + 1,
-    };
-    setDictionaries(prev => prev.map(d =>
-      d.id === selectedDict.id
-        ? { ...d, items: [...d.items, newItem] }
-        : d
-    ));
-    setSelectedDict(prev => prev ? { ...prev, items: [...prev.items, newItem] } : null);
+    addDictionaryItem(selectedDict.id, value.trim());
     setIsAdding(false);
   };
 
   const handleEditItem = (itemId: string, newValue: string) => {
     if (!selectedDict || !newValue.trim()) return;
-    setDictionaries(prev => prev.map(d =>
-      d.id === selectedDict.id
-        ? { ...d, items: d.items.map(i => i.id === itemId ? { ...i, value: newValue } : i) }
-        : d
-    ));
-    setSelectedDict(prev => prev
-      ? { ...prev, items: prev.items.map(i => i.id === itemId ? { ...i, value: newValue } : i) }
-      : null
-    );
+    updateDictionaryItem(selectedDict.id, itemId, newValue.trim());
     setEditItem(null);
   };
 
   const handleDeleteItem = (itemId: string) => {
     if (!selectedDict) return;
-    setDictionaries(prev => prev.map(d =>
-      d.id === selectedDict.id
-        ? { ...d, items: d.items.filter(i => i.id !== itemId) }
-        : d
-    ));
-    setSelectedDict(prev => prev
-      ? { ...prev, items: prev.items.filter(i => i.id !== itemId) }
-      : null
-    );
+    removeDictionaryItem(selectedDict.id, itemId);
   };
 
   return (
@@ -250,11 +107,11 @@ export default function Dictionaries() {
           <ScrollArea className="h-[calc(100vh-14rem)]">
             <div className="p-2 space-y-1">
               {dictionaries.map((dict) => {
-                const Icon = dict.icon;
+                const Icon = dictionaryIcons[dict.id] || BookOpen;
                 return (
                   <button
                     key={dict.id}
-                    onClick={() => setSelectedDict(dict)}
+                    onClick={() => setSelectedDictId(dict.id)}
                     className={cn(
                       'w-full text-left p-3 rounded-lg transition-all duration-150 flex items-center gap-3',
                       selectedDict?.id === dict.id
@@ -338,13 +195,12 @@ export default function Dictionaries() {
                       <TableRow className="bg-muted/50">
                         <TableHead className="w-12 text-xs font-medium text-muted-foreground">№</TableHead>
                         <TableHead className="text-xs font-medium text-muted-foreground">Значение</TableHead>
-                        <TableHead className="text-xs font-medium text-muted-foreground">Описание</TableHead>
                         <TableHead className="w-24 text-xs font-medium text-muted-foreground text-right">Действия</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredItems.map((item, index) => (
-                        <TableRow key={item.id} className="group">
+                        <TableRow key={item.id}>
                           <TableCell className="text-sm text-muted-foreground">{index + 1}</TableCell>
                           <TableCell>
                             {editItem?.id === item.id ? (
@@ -364,15 +220,12 @@ export default function Dictionaries() {
                               <span className="text-sm font-medium text-foreground">{item.value}</span>
                             )}
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {item.description || '-'}
-                          </TableCell>
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100"
+                                className="h-7 w-7 p-0"
                                 onClick={() => setEditItem(item)}
                               >
                                 <Edit className="h-3.5 w-3.5" />
@@ -380,7 +233,7 @@ export default function Dictionaries() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-600"
+                                className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
                                 onClick={() => handleDeleteItem(item.id)}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -391,7 +244,7 @@ export default function Dictionaries() {
                       ))}
                       {filteredItems.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
                             Значения не найдены
                           </TableCell>
                         </TableRow>
