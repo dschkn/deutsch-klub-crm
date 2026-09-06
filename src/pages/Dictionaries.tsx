@@ -41,7 +41,6 @@ import {
   addDictionaryItem,
   updateDictionaryItem,
   removeDictionaryItem,
-  type Dictionary,
   type DictionaryItem,
 } from '../data/dictionariesStore';
 
