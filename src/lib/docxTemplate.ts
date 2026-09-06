@@ -1,6 +1,5 @@
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
-import * as mammoth from 'mammoth/mammoth.browser';
 
 export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -64,12 +63,6 @@ export function extractTemplateVariables(base64: string): TemplateVariables {
   }
 
   return { fields: [...fields], loops: [...loops] };
-}
-
-/** Renders the .docx content as HTML for a quick in-app preview (structure/text only, not pixel-exact). */
-export async function convertDocxToHtml(base64: string): Promise<string> {
-  const { value } = await mammoth.convertToHtml({ arrayBuffer: base64ToArrayBuffer(base64) });
-  return value;
 }
 
 export class TemplateRenderError extends Error {}
