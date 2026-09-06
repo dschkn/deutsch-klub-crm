@@ -66,6 +66,7 @@ import {
   fileToBase64,
   extractTemplateVariables,
   downloadBase64,
+  convertDocxToHtml,
 } from '../lib/docxTemplate';
 
 const allGroupCategories: GroupCategory[] = ['standard', 'intensive', 'special', 'individual'];
@@ -233,6 +234,33 @@ export default function Contracts() {
   // ---------- Действия со списком шаблонов ----------
   const [previewTemplate, setPreviewTemplate] = useState<ContractTemplate | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<ContractTemplate | null>(null);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+
+  useEffect(() => {
+    if (!previewTemplate?.fileBase64) {
+      setPreviewHtml('');
+      setPreviewError('');
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewError('');
+    convertDocxToHtml(previewTemplate.fileBase64)
+      .then((html) => {
+        if (!cancelled) setPreviewHtml(html);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewError('Не удалось показать содержимое файла');
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewTemplate?.fileBase64]);
 
   function handleDownloadTemplate(t: ContractTemplate) {
     if (!t.fileBase64) {
@@ -581,62 +609,82 @@ export default function Contracts() {
       {/* Просмотр шаблона */}
       {previewTemplate && (
         <Dialog open={!!previewTemplate} onOpenChange={() => setPreviewTemplate(null)}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{previewTemplate.name}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
-                <FileText className="h-4 w-4" />
-                {previewTemplate.fileName}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {previewTemplate.groupCategories.map((c) => (
-                  <Badge key={c} variant="outline" className={groupCategoryConfig[c].color}>
-                    {groupCategoryConfig[c].label}
-                  </Badge>
-                ))}
-                {previewTemplate.ageBrackets.map((b) => (
-                  <Badge key={b} variant="outline">
-                    {ageBracketConfig[b].label}
-                  </Badge>
-                ))}
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground mb-2">Переменные ({previewTemplate.fields.length})</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {previewTemplate.fields.length === 0 && (
-                    <span className="text-sm text-muted-foreground">Не найдены</span>
-                  )}
-                  {previewTemplate.fields.map((f) => (
-                    <Badge key={f} variant="outline" className="font-mono text-[11px]">
-                      {`{${f}}`}
-                    </Badge>
-                  ))}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
+              <FileText className="h-4 w-4 flex-shrink-0" />
+              {previewTemplate.fileName}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {previewTemplate.groupCategories.map((c) => (
+                <Badge key={c} variant="outline" className={groupCategoryConfig[c].color}>
+                  {groupCategoryConfig[c].label}
+                </Badge>
+              ))}
+              {previewTemplate.ageBrackets.map((b) => (
+                <Badge key={b} variant="outline">
+                  {ageBracketConfig[b].label}
+                </Badge>
+              ))}
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-border bg-white p-5">
+              {!previewTemplate.fileBase64 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Файл ещё не загружен — предпросмотр недоступен
+                </p>
+              ) : previewLoading ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Загружаю содержимое…
                 </div>
-              </div>
-              {previewTemplate.loops.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium text-foreground mb-2">Разделы-списки</p>
+              ) : previewError ? (
+                <p className="text-sm text-red-600 text-center py-8">{previewError}</p>
+              ) : (
+                <div
+                  className="text-sm leading-relaxed text-foreground [&_p]:mb-2 [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-1.5 [&_strong]:font-semibold"
+                  dangerouslySetInnerHTML={{ __html: previewHtml }}
+                />
+              )}
+            </div>
+
+            {(previewTemplate.fields.length > 0 || previewTemplate.loops.length > 0) && (
+              <details className="text-sm">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
+                  Переменные шаблона ({previewTemplate.fields.length})
+                </summary>
+                <div className="mt-2 space-y-2">
                   <div className="flex flex-wrap gap-1.5">
-                    {previewTemplate.loops.map((l) => (
-                      <Badge key={l} variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-[11px]">
-                        {loopLabels[l] || l}
+                    {previewTemplate.fields.map((f) => (
+                      <Badge key={f} variant="outline" className="font-mono text-[11px]">
+                        {`{${f}}`}
                       </Badge>
                     ))}
                   </div>
+                  {previewTemplate.loops.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {previewTemplate.loops.map((l) => (
+                        <Badge key={l} variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-[11px]">
+                          {loopLabels[l] || l}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" className="gap-2" onClick={() => openEditDialog(previewTemplate)}>
-                  <Pencil className="h-4 w-4" />
-                  Редактировать
-                </Button>
-                <Button variant="outline" className="gap-2" onClick={() => handleDownloadTemplate(previewTemplate)}>
-                  <Download className="h-4 w-4" />
-                  Скачать файл
-                </Button>
-              </div>
+              </details>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" className="gap-2" onClick={() => openEditDialog(previewTemplate)}>
+                <Pencil className="h-4 w-4" />
+                Редактировать
+              </Button>
+              <Button variant="outline" className="gap-2" onClick={() => handleDownloadTemplate(previewTemplate)}>
+                <Download className="h-4 w-4" />
+                Скачать файл
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
