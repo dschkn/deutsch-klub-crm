@@ -68,6 +68,7 @@ import {
 import { importedStudents } from "../data/importedStudents";
 import { realGroups, type RealGroup } from "../data/realGroups";
 import { getTeacherDirectory } from "../data/teacherDirectory";
+import { getAdminDirectory } from "../data/adminDirectory";
 import CreateGroupDialog from "../components/group/CreateGroupDialog";
 import { cn } from "../lib/utils";
 import type { Student } from "../types";
@@ -1835,10 +1836,10 @@ export default function Groups() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="unassigned">Не назначен</SelectItem>
-                  {demoAdministrators.map((admin) => (
+                  <SelectItem value="unassigned">Неразобранное</SelectItem>
+                  {getAdminDirectory().filter((admin) => admin.active).map((admin) => (
                     <SelectItem key={admin.id} value={admin.id}>
-                      {admin.name}
+                      {admin.firstName} {admin.lastName}
                     </SelectItem>
                   ))}
                 </SelectContent>
