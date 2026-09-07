@@ -8,7 +8,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
-import { demoAdminTasks, getShift, getShiftHours, type DemoBoardTask } from '../data/demoAdministrators';
+import { demoAdminTasks, getShift, type DemoBoardTask } from '../data/demoAdministrators';
 import { getAdminDirectory } from '../data/adminDirectory';
 import { importedStudents } from '../data/importedStudents';
 import { useCurrentUser } from '../hooks/use-auth';
@@ -45,15 +45,18 @@ export default function Dashboard() {
   const displayedTasks = personalTasks.length ? personalTasks : tasks.filter((task) => task.status !== 'completed').slice(adminIndex * 2, adminIndex * 2 + 4);
   const attentionClients = importedStudents.slice(adminIndex * 4, adminIndex * 4 + 4);
   const shift = getShift(admin.id, TODAY_KEY);
+  const shiftStart = shift?.segments[0]?.split('-')[0];
+  const shiftEnd = shift?.segments.at(-1)?.split('-')[1];
+  const shiftRange = shiftStart && shiftEnd ? `${shiftStart}–${shiftEnd}` : '';
+  const endOfShift = shiftEnd ? new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate(), Number(shiftEnd.split(':')[0]), Number(shiftEnd.split(':')[1])) : null;
+  const remainingMinutes = endOfShift ? Math.max(0, Math.floor((endOfShift.getTime() - Date.now()) / 60000)) : 0;
   const firstName = user?.fullName?.split(' ')[1] || user?.fullName?.split(' ')[0] || admin.shortName;
   const weekStart = startOfWeek(TODAY, { weekStartsOn: 1 });
-  const weekPlan = Array.from({ length: 6 }, (_, index) => {
-    const date = addDays(weekStart, index);
-    const dayShift = getShift(admin.id, format(date, 'yyyy-MM-dd'));
-    return { date, shift: dayShift, hours: getShiftHours(dayShift) };
-  });
-  const weeklyHours = weekPlan.reduce((sum, day) => sum + day.hours, 0);
-  const weeklyProgress = Math.min(100, Math.round((weeklyHours / 40) * 100));
+  const weekEndKey = format(addDays(weekStart, 6), 'yyyy-MM-dd');
+  const weekStartKey = format(weekStart, 'yyyy-MM-dd');
+  const weeklyTasks = tasks.filter(task => task.dueDate >= weekStartKey && task.dueDate <= weekEndKey && task.assigneeId === admin.id);
+  const weeklyCompleted = weeklyTasks.filter(task => task.status === 'completed').length;
+  const weeklyProgress = weeklyTasks.length ? Math.round((weeklyCompleted / weeklyTasks.length) * 100) : 0;
 
   return <div className="-m-6 min-h-[calc(100vh-4rem)] bg-[#f5f4f2] p-6 lg:-m-8 lg:p-8">
     <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -89,42 +92,28 @@ export default function Dashboard() {
       </Card>
 
       <div className="space-y-5">
-        <Card className="rounded-3xl border-0 bg-[#e8ece9] shadow-sm ring-1 ring-black/5"><CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Clock3 className="h-4 w-4" />Расписание на сегодня</CardTitle></CardHeader><CardContent className="space-y-2">{shift ? shift.segments.map((segment) => <div key={segment} className="rounded-2xl bg-white/65 px-3 py-2 text-sm"><span className="font-medium">{segment.replace('-', '–')}</span><span className="ml-2 text-xs text-slate-500">рабочая смена</span></div>) : <p className="text-sm text-slate-500">Сегодня выходной</p>}<p className="pt-2 text-xs text-slate-500">Команда: 18 занятий · 3 консультации</p></CardContent></Card>
+        <Card className="rounded-3xl border-0 bg-[#e8ece9] shadow-sm ring-1 ring-black/5"><CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Clock3 className="h-4 w-4" />Расписание на сегодня</CardTitle></CardHeader><CardContent className="space-y-3">{shift ? <><div className="rounded-2xl bg-white/65 px-3 py-2 text-sm"><span className="font-medium">{shiftRange}</span><span className="ml-2 text-xs text-slate-500">рабочая смена · обед включён</span></div><p className="font-light tracking-wide text-[#315f50]">До конца смены осталось: <span className="font-medium">{Math.floor(remainingMinutes/60)} часов, {remainingMinutes%60} минут</span></p></> : <p className="text-sm text-slate-500">Сегодня выходной</p>}<p className="pt-2 text-xs text-slate-500">Команда: 18 занятий · 3 консультации</p></CardContent></Card>
         <Card className="rounded-3xl border-0 bg-[#eee9e3] shadow-sm ring-1 ring-black/5"><CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4" />Ближайшие мероприятия</CardTitle></CardHeader><CardContent className="space-y-3">{teamSchedule.map((event) => <div key={event.title} className="border-b border-black/5 pb-3 last:border-0 last:pb-0"><p className="text-sm font-medium">{event.title}</p><p className="mt-1 text-xs text-slate-500">{event.time} · {event.place}</p></div>)}</CardContent></Card>
       </div>
     </div>
 
-    <div className="mt-5 grid gap-5 xl:grid-cols-[1.4fr_0.8fr]">
-      <Card className="rounded-3xl border-0 bg-white/90 shadow-sm ring-1 ring-black/5">
-        <CardHeader className="pb-3"><CardTitle className="text-base">Мой план недели</CardTitle><p className="mt-1 text-xs text-slate-400">Рабочие часы и ритм смен</p></CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-6 gap-2">
-            {weekPlan.map((day) => <div key={day.date.toISOString()} className="flex min-w-0 flex-col items-center rounded-2xl bg-[#f7f6f4] px-2 py-3">
-              <span className="text-[10px] font-medium uppercase text-slate-400">{format(day.date, 'EEEEEE', { locale: ru })}</span>
-              <div className="my-3 flex h-20 w-3 items-end overflow-hidden rounded-full bg-slate-200"><div className="w-full rounded-full bg-gradient-to-t from-[#c9bcae] to-[#a8bdb4] transition-all" style={{ height: `${Math.max(day.hours ? 18 : 0, Math.min(100, day.hours * 11))}%` }} /></div>
-              <span className="text-sm font-semibold text-slate-700">{day.hours ? `${day.hours} ч.` : '—'}</span>
-              <span className="mt-1 max-w-full truncate text-[9px] text-slate-400">{day.shift?.segments[0]?.replace('-', '–') || 'выходной'}</span>
-            </div>)}
-          </div>
-        </CardContent>
-      </Card>
-
+    <div className="mt-5 grid gap-5 xl:grid-cols-[0.65fr_1.35fr]">
+      <Card className="min-h-[390px] rounded-3xl border-0 bg-[#f5f1e7] shadow-sm ring-1 ring-black/5"><CardHeader className="pb-2"><CardTitle className="text-xl">Заметки</CardTitle></CardHeader><CardContent><form className="flex gap-2" onSubmit={event=>{event.preventDefault();if(!noteDraft.trim())return;setNotes(current=>[noteDraft.trim(),...current]);setNoteDraft('')}}><Input value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} className="border-0 border-b bg-transparent shadow-none" placeholder="Новая заметка…"/><Button type="submit" size="icon" variant="ghost"><Plus className="h-4 w-4"/></Button></form><div className="mt-3 divide-y divide-stone-300/60">{notes.map((note,index)=><div key={`${note}-${index}`} className="group flex min-h-12 items-start gap-2 py-3 text-sm"><span className="flex-1 whitespace-pre-wrap">{note}</span><Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100" onClick={()=>setNotes(current=>current.filter((_,i)=>i!==index))}><Trash2 className="h-3.5 w-3.5"/></Button></div>)}</div></CardContent></Card>
       <Card className="overflow-hidden rounded-3xl border-0 bg-[#eeece8] shadow-sm ring-1 ring-black/5">
         <CardHeader className="pb-0"><CardTitle className="text-base">Нагрузка недели</CardTitle></CardHeader>
         <CardContent className="flex flex-col items-center pt-2">
           <div className="relative h-32 w-64 overflow-hidden">
             <svg viewBox="0 0 240 130" className="h-full w-full" aria-label={`Недельная нагрузка ${weeklyProgress}%`}>
-              <path d="M 20 118 A 100 100 0 0 1 220 118" fill="none" stroke="#dedbd6" strokeWidth="20" strokeLinecap="round" />
-              <path d="M 20 118 A 100 100 0 0 1 220 118" fill="none" stroke="url(#weekLoad)" strokeWidth="20" strokeLinecap="round" pathLength="100" strokeDasharray={`${weeklyProgress} 100`} />
+              <path d="M 20 118 A 100 100 0 0 1 220 118" fill="none" stroke="#dedbd6" strokeWidth="11" strokeLinecap="round" />
+              <path d="M 20 118 A 100 100 0 0 1 220 118" fill="none" stroke="url(#weekLoad)" strokeWidth="11" strokeLinecap="round" pathLength="100" strokeDasharray={`${weeklyProgress} 100`} />
               <defs><linearGradient id="weekLoad" x1="0" x2="1"><stop stopColor="#d8b9ad" /><stop offset="0.55" stopColor="#d8cd9f" /><stop offset="1" stopColor="#9ebcad" /></linearGradient></defs>
             </svg>
-            <div className="absolute inset-x-0 bottom-0 text-center"><p className="text-3xl font-semibold text-slate-800">{weeklyHours}<span className="text-base font-normal text-slate-400"> / 40 ч.</span></p><p className="text-[11px] text-slate-400">запланировано</p></div>
+            <div className="absolute inset-x-0 bottom-0 text-center"><p className="text-3xl font-semibold text-slate-800">{weeklyProgress}<span className="text-base font-normal text-slate-400">%</span></p><p className="text-[11px] text-slate-400">задач выполнено</p></div>
           </div>
-          <div className="mt-3 grid w-full grid-cols-2 gap-2 text-xs"><div className="rounded-xl bg-white/60 p-3"><p className="text-slate-400">Рабочих дней</p><p className="mt-1 text-lg font-semibold">{weekPlan.filter((day) => day.hours).length}</p></div><div className="rounded-xl bg-white/60 p-3"><p className="text-slate-400">Средняя смена</p><p className="mt-1 text-lg font-semibold">{weeklyHours ? Math.round(weeklyHours / Math.max(1, weekPlan.filter((day) => day.hours).length)) : 0} ч.</p></div></div>
+          <div className="mt-3 grid w-full grid-cols-2 gap-2 text-xs"><div className="rounded-xl bg-white/60 p-3"><p className="text-slate-400">Задач выполнено:</p><p className="mt-1 text-lg font-semibold">{weeklyCompleted}</p></div><div className="rounded-xl bg-white/60 p-3"><p className="text-slate-400">Всего задач на эту неделю:</p><p className="mt-1 text-lg font-semibold">{weeklyTasks.length}</p></div></div>
         </CardContent>
       </Card>
     </div>
-    <Card className="mt-5 rounded-3xl border-0 bg-white/90 shadow-sm ring-1 ring-black/5"><CardHeader className="pb-3"><CardTitle className="text-base">Заметки</CardTitle><p className="text-xs text-slate-400">Личный быстрый блокнот — виден только в вашем профиле.</p></CardHeader><CardContent><form className="flex gap-2" onSubmit={event=>{event.preventDefault();if(!noteDraft.trim())return;setNotes(current=>[noteDraft.trim(),...current]);setNoteDraft('')}}><Input value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} placeholder="Записать, чтобы не держать в голове…"/><Button type="submit" size="icon" aria-label="Добавить заметку"><Plus className="h-4 w-4"/></Button></form><div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{notes.map((note,index)=><div key={`${note}-${index}`} className="flex items-start gap-3 border-l-2 border-amber-300 bg-[#faf8f2] px-3 py-3 text-sm"><span className="min-w-0 flex-1 whitespace-pre-wrap">{note}</span><Button size="icon" variant="ghost" className="h-7 w-7 flex-none" onClick={()=>setNotes(current=>current.filter((_,i)=>i!==index))}><Trash2 className="h-3.5 w-3.5 text-slate-400"/></Button></div>)}{!notes.length&&<p className="py-2 text-sm text-slate-400">Пока пусто. Голова официально освобождена.</p>}</div></CardContent></Card>
     <div className="mt-5 flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-4 text-sm text-white shadow-lg"><UsersRound className="h-4 w-4 text-emerald-300" /><span><strong>Команда:</strong> сегодня закрыто 14 задач, три запуска подготовлены без переносов.</span></div>
   </div>;
 }
