@@ -13,6 +13,7 @@ import {
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { realGroups } from '../../data/realGroups';
 import { demoTeacherUserMap } from '../../data/demoTeachers';
+import { useCourseTypeLabel } from '../../data/courseTypes';
 import { DataStore } from '../../data/store';
 import { NormalizedTeacherScheduleItem, NormalizedComment } from '../../types/normalized';
 import { format } from 'date-fns';
@@ -20,20 +21,6 @@ import { ru } from 'date-fns/locale';
 import { Send, Clock, X } from 'lucide-react';
 
 const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-const courseTypeLabels: Record<string, string> = {
-  individual: 'Индивидуальная',
-  club: 'Клуб',
-  group: 'Групповая',
-  intensive: 'Интенсив',
-  grammar: 'Грамматика',
-  mini: 'Мини-группа',
-  phonetics: 'Фонетика',
-  open_lesson: 'Открытый урок',
-  test: 'Тест',
-  language_course: 'Языковой курс',
-  medical: 'Медицинский',
-};
 
 const languageLabels: Record<string, string> = {
   German: 'Немецкий',
@@ -59,6 +46,7 @@ export default function GroupInfoDialog({ groupId, open, onOpenChange }: GroupIn
   const [groupItems, setGroupItems] = useState<NormalizedTeacherScheduleItem[]>([]);
   const [comments, setComments] = useState<NormalizedComment[]>([]);
   const [newComment, setNewComment] = useState('');
+  const courseTypeLabel = useCourseTypeLabel();
 
   const group = groupId ? realGroups.find(g => g.id === groupId) ?? null : null;
 
@@ -148,7 +136,7 @@ export default function GroupInfoDialog({ groupId, open, onOpenChange }: GroupIn
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-slate-400 min-w-[100px]">Тип курса</span>
-                  <span className="font-medium">{courseTypeLabels[group.courseType] || group.courseType}</span>
+                  <span className="font-medium">{courseTypeLabel(group.courseType)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-slate-400 min-w-[100px]">Стоимость</span>

@@ -7,24 +7,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { DataStore } from '../../data/store';
 import { realGroups } from '../../data/realGroups';
 import { demoTeacherOptions } from '../../data/demoTeachers';
+import { useDictionaryValues } from '../../data/dictionariesStore';
+import { useCourseTypeOptions } from '../../data/courseTypes';
 import type { ScheduleItem } from '../../types';
 import { NormalizedGroup, NormalizedScheduleEntry } from '../../types/normalized';
 
 const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-const courseTypeOptions = [
-  { value: 'group', label: 'Групповая' },
-  { value: 'mini', label: 'Мини-группа' },
-  { value: 'individual', label: 'Индивидуальная' },
-  { value: 'intensive', label: 'Интенсив' },
-  { value: 'club', label: 'Клуб' },
-  { value: 'grammar', label: 'Грамматика' },
-  { value: 'phonetics', label: 'Фонетика' },
-  { value: 'language_course', label: 'Языковой курс' },
-  { value: 'open_lesson', label: 'Открытый урок' },
-];
-
-const levelOptions = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
 interface CreateGroupDialogProps {
   open: boolean;
@@ -46,6 +34,10 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
   const [maxStudents, setMaxStudents] = useState(8);
   const [scheduleEntries, setScheduleEntries] = useState<Partial<NormalizedScheduleEntry>[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
+
+  const levelOptions = useDictionaryValues('levels', level);
+  const textbookOptions = useDictionaryValues('textbooks', textbook);
+  const courseTypeOptions = useCourseTypeOptions(courseType);
 
   const addScheduleEntry = () => {
     setScheduleEntries(prev => [...prev, { dayOfWeek: 1, startTime: '10:00', endTime: '11:30' }]);
@@ -251,7 +243,12 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Учебник</Label>
-              <Input className="text-xs h-8" value={textbook} onChange={e => setTextbook(e.target.value)} placeholder="Menschen A1" />
+              <Select value={textbook} onValueChange={setTextbook}>
+                <SelectTrigger className="text-xs h-8"><SelectValue placeholder="Выберите..." /></SelectTrigger>
+                <SelectContent>
+                  {textbookOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Стоимость (₽)</Label>

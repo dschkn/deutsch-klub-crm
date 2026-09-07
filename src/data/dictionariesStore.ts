@@ -69,9 +69,20 @@ const initialDictionaries: Dictionary[] = [
     ]),
   },
   {
+    // Формат "<день> <месяц> - <название>" разбирается в data/holidays.ts. Год не указываем —
+    // такой выходной действует каждый год; для разовых можно писать "23.02.2026 - ...".
     id: 'holidays',
     name: 'Выходные',
-    items: items(['1 января - Новый год', '8 марта', '9 мая']),
+    items: items([
+      '1 января - Новый год',
+      '7 января - Рождество',
+      '23 февраля - День защитника Отечества',
+      '8 марта - Международный женский день',
+      '1 мая - Праздник Весны и Труда',
+      '9 мая - День Победы',
+      '12 июня - День России',
+      '4 ноября - День народного единства',
+    ]),
   },
   {
     id: 'task_templates',
@@ -111,7 +122,57 @@ const initialDictionaries: Dictionary[] = [
   },
 ];
 
-let dictionaries: Dictionary[] = initialDictionaries;
+const STORAGE_KEY = 'dk-dictionaries-v1';
+
+/** Сохраняем только сами значения: названия и состав справочников задаются в коде. */
+type StoredDictionaries = Record<string, DictionaryItem[]>;
+
+function isStoredItem(value: unknown): value is DictionaryItem {
+  const item = value as DictionaryItem;
+  return (
+    typeof item === 'object' &&
+    item !== null &&
+    typeof item.id === 'string' &&
+    typeof item.value === 'string' &&
+    typeof item.sortOrder === 'number'
+  );
+}
+
+/**
+ * Сохранённые значения накладываются на список справочников из кода, а не заменяют его:
+ * так справочник, добавленный в новой версии, появится и у тех, кто уже что-то правил,
+ * а удалённый из кода — исчезнет. Пустой список значений — тоже осознанный выбор
+ * администратора, поэтому он сохраняется, а не подменяется значениями по умолчанию.
+ */
+function loadDictionaries(): Dictionary[] {
+  let stored: StoredDictionaries = {};
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      stored = raw as StoredDictionaries;
+    }
+  } catch {
+    // Повреждённые данные игнорируем и работаем со значениями по умолчанию.
+  }
+
+  return initialDictionaries.map((dictionary) => {
+    const savedItems = stored[dictionary.id];
+    if (!Array.isArray(savedItems)) return dictionary;
+    return { ...dictionary, items: savedItems.filter(isStoredItem) };
+  });
+}
+
+function persist(next: Dictionary[]) {
+  try {
+    const payload: StoredDictionaries = {};
+    for (const dictionary of next) payload[dictionary.id] = dictionary.items;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Переполненное или недоступное хранилище не должно ломать редактирование.
+  }
+}
+
+let dictionaries: Dictionary[] = loadDictionaries();
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -124,7 +185,17 @@ export function getDictionaries(): Dictionary[] {
 
 export function setDictionaries(updater: (prev: Dictionary[]) => Dictionary[]) {
   dictionaries = updater(dictionaries);
+  persist(dictionaries);
   emit();
+}
+
+/** Возвращает справочнику значения по умолчанию из кода. */
+export function resetDictionary(dictionaryId: string) {
+  const defaults = initialDictionaries.find((d) => d.id === dictionaryId);
+  if (!defaults) return;
+  setDictionaries((prev) =>
+    prev.map((d) => (d.id === dictionaryId ? { ...d, items: defaults.items } : d))
+  );
 }
 
 function subscribe(listener: () => void): () => void {
@@ -136,12 +207,29 @@ export function useDictionaries(): Dictionary[] {
   return useSyncExternalStore(subscribe, getDictionaries, getDictionaries);
 }
 
-/** Convenience: just the (sorted) values of one dictionary, e.g. for a <Select>'s options. */
-export function useDictionaryValues(dictionaryId: string): string[] {
+/**
+ * Convenience: just the (sorted) values of one dictionary, e.g. for a <Select>'s options.
+ *
+ * `currentValue` keeps a legacy value that is not (yet) in the dictionary selectable, so
+ * switching a free-text field to a dictionary-backed <Select> never blanks existing data.
+ */
+export function useDictionaryValues(dictionaryId: string, currentValue?: string): string[] {
   const all = useDictionaries();
   const dict = all.find((d) => d.id === dictionaryId);
-  if (!dict) return [];
-  return [...dict.items].sort((a, b) => a.sortOrder - b.sortOrder).map((i) => i.value);
+  const values = dict
+    ? [...dict.items].sort((a, b) => a.sortOrder - b.sortOrder).map((i) => i.value)
+    : [];
+  const current = currentValue?.trim();
+  return current && !values.includes(current) ? [current, ...values] : values;
+}
+
+let idCounter = 0;
+
+/** Значения теперь переживают перезагрузку, поэтому id обязан быть уникальным:
+ * два значения, добавленные в одну миллисекунду, иначе редактировались бы вместе. */
+function nextItemId(): string {
+  idCounter += 1;
+  return `${Date.now()}-${idCounter}`;
 }
 
 export function addDictionaryItem(dictionaryId: string, value: string) {
@@ -153,9 +241,10 @@ export function addDictionaryItem(dictionaryId: string, value: string) {
             items: [
               ...d.items,
               {
-                id: `${Date.now()}`,
+                id: nextItemId(),
                 value,
-                sortOrder: d.items.length + 1,
+                // Не items.length: после удалений он повторил бы уже занятый порядок.
+                sortOrder: Math.max(0, ...d.items.map((i) => i.sortOrder)) + 1,
               },
             ],
           }

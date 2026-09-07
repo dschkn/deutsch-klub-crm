@@ -3,6 +3,7 @@ import { ru } from 'date-fns/locale';
 import type { Student } from '../types';
 import type { RealGroup } from '../data/realGroups';
 import type { AgeBracket, ContractTemplate, GroupCategory, Lang } from '../data/contractTemplatesStore';
+import type { HolidayLookup } from '../data/holidays';
 import { renderContractDocx } from './docxTemplate';
 
 const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
@@ -205,10 +206,13 @@ export interface CourseHoursResult {
   tiersClause: string;
   /** Условия возврата — свои для субботних и для будних групп. */
   refundTerms: string;
-  /** Даты, которые добавятся к графику при выходе группы на 3 человека (для "При кол-ве чел. в группе =3"). */
-  datesIfThree: string;
+  /** Даты, которые добавятся к графику при выходе группы на 3 человека (для "При кол-ве чел. в группе =3"),
+   * сгруппированные по месяцам — как месяц/даты в шаблоне, а не одной строкой с табуляцией. */
+  datesIfThree: MonthGroups;
   /** Даты, которые добавятся при выходе на 4 и более человек. */
-  datesIfFourPlus: string;
+  datesIfFourPlus: MonthGroups;
+  /** Выходные из справочника, выпавшие на дни группы: занятий в них нет. */
+  skippedHolidays: { date: Date; name: string }[];
 }
 
 /**
@@ -263,7 +267,11 @@ function buildTiersClause(table: Record<HeadcountBand, number>, isYouth: boolean
     .join(' ');
 }
 
-export function computeCourseHours(group: RealGroup, ageBracket: AgeBracket): CourseHoursResult {
+export function computeCourseHours(
+  group: RealGroup,
+  ageBracket: AgeBracket,
+  isHoliday?: HolidayLookup
+): CourseHoursResult {
   const isYouth = ageBracket !== 'adult';
   const dayType = getDayType(group);
   const levelBand = getLevelBand(group, isYouth);
@@ -284,41 +292,87 @@ export function computeCourseHours(group: RealGroup, ageBracket: AgeBracket): Co
       : 'В группах буднего дня: 15% стоимости удерживается при отказе до 3-го занятия, 30% — до 5-го занятия.';
 
   const perLessonHours = lessonDurationHoursNumber(group);
+  const emptyGroups: MonthGroups = { months: [], dateLines: [] };
   const { datesIfThree, datesIfFourPlus } = perLessonHours
-    ? computeIncrementalDates(group, perLessonHours, hours, threeValue, fourPlusValue)
-    : { datesIfThree: '', datesIfFourPlus: '' };
+    ? computeIncrementalDates(group, perLessonHours, hours, threeValue, fourPlusValue, isHoliday)
+    : { datesIfThree: emptyGroups, datesIfFourPlus: emptyGroups };
 
-  return { hours, dayType, levelBand, tiersClause, refundTerms, datesIfThree, datesIfFourPlus };
+  return {
+    hours,
+    dayType,
+    levelBand,
+    tiersClause,
+    refundTerms,
+    datesIfThree,
+    datesIfFourPlus,
+    skippedHolidays: buildLessonSchedule(group, isHoliday).skipped,
+  };
 }
 
-/** Every calendar date the group meets, in chronological order, from start to end of course. */
-function flatLessonDates(group: RealGroup): Date[] {
+export interface LessonSchedule {
+  /** Дни, когда группа реально занимается, в хронологическом порядке. */
+  dates: Date[];
+  /** Выпавшие на выходные дни — занятий в них нет, курс на столько же продлевается. */
+  skipped: { date: Date; name: string }[];
+}
+
+/**
+ * График занятий группы. Выходные из справочника не становятся занятиями: оплаченный
+ * объём часов от этого не уменьшается, поэтому вместо пропущенного дня курс уезжает на
+ * одно занятие дальше, за первоначальную дату окончания.
+ */
+export function buildLessonSchedule(group: RealGroup, isHoliday?: HolidayLookup): LessonSchedule {
   const daysOfWeek = new Set(group.schedule.map((s) => s.dayOfWeek));
   const dates: Date[] = [];
-  if (daysOfWeek.size === 0) return dates;
+  const skipped: { date: Date; name: string }[] = [];
+  if (daysOfWeek.size === 0) return { dates, skipped };
 
   const cursor = new Date(group.startDate);
   cursor.setHours(0, 0, 0, 0);
   const end = new Date(group.endDate);
   end.setHours(0, 0, 0, 0);
-  let guard = 0;
 
-  while (cursor <= end && guard < 400) {
+  // Сколько занятий было бы без выходных — столько же должно остаться и с ними.
+  let plannedCount = 0;
+  const counter = new Date(cursor);
+  for (let guard = 0; counter <= end && guard < 400; guard += 1) {
+    if (daysOfWeek.has(counter.getDay())) plannedCount += 1;
+    counter.setDate(counter.getDate() + 1);
+  }
+
+  for (let guard = 0; dates.length < plannedCount && guard < 800; guard += 1) {
     if (daysOfWeek.has(cursor.getDay())) {
-      dates.push(new Date(cursor));
+      const holidayName = isHoliday?.(cursor) ?? null;
+      if (holidayName) {
+        skipped.push({ date: new Date(cursor), name: holidayName });
+      } else {
+        dates.push(new Date(cursor));
+      }
     }
     cursor.setDate(cursor.getDate() + 1);
-    guard += 1;
   }
-  return dates;
+  return { dates, skipped };
+}
+
+/** Every calendar date the group meets, in chronological order, from start to end of course. */
+function flatLessonDates(group: RealGroup, isHoliday?: HolidayLookup): Date[] {
+  return buildLessonSchedule(group, isHoliday).dates;
+}
+
+export interface MonthGroups {
+  /** "Июль 2026" и т.п. — один элемент на месяц, в порядке появления. */
+  months: string[];
+  /** dateLines[i] — дни месяца months[i] одной строкой ("03, 06, 10"). */
+  dateLines: string[];
 }
 
 /**
- * Groups the group's actual lesson dates by month: `months[i]` ("Июль 2026") pairs with
- * `dateLines[i]` — the day numbers of that month's lessons as one comma-separated string
- * ("03, 06, 10, ..."). The two arrays render side by side as a Месяц/Даты table in the template.
+ * Группирует даты по месяцам: `months[i]` пары с `dateLines[i]` — днями этого месяца одной
+ * строкой ("03, 06, 10, ..."). Оба массива рендерятся в шаблоне как два столбца одной
+ * табличной строки на каждый месяц (Docxtemplater loop), поэтому месяц и числа всегда стоят
+ * в своих колонках, а не через табуляцию внутри одного текстового поля.
  */
-function scheduleByMonth(group: RealGroup): { months: string[]; dateLines: string[] } {
+function groupDatesByMonth(dates: Date[]): MonthGroups {
   const months: string[] = [];
   const dateLines: string[] = [];
   let currentMonthKey = '';
@@ -331,7 +385,7 @@ function scheduleByMonth(group: RealGroup): { months: string[]; dateLines: strin
     }
   };
 
-  for (const date of flatLessonDates(group)) {
+  for (const date of dates) {
     const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
     if (monthKey !== currentMonthKey) {
       flush();
@@ -343,39 +397,6 @@ function scheduleByMonth(group: RealGroup): { months: string[]; dateLines: strin
   flush();
 
   return { months, dateLines };
-}
-
-/**
- * То же группирование по месяцам (без года, только номера дней), но как единая
- * строка "Месяц\tдд, дд, дд" (месяц и его даты — на одной строке через таб, как в
- * образце) — для красных вставок "При кол-ве чел. в группе = ..." в шаблоне, которые
- * являются одним текстовым полем, а не циклом. Разные месяцы — каждый на своей строке.
- */
-function formatDatesByMonth(dates: Date[]): string {
-  const blocks: string[] = [];
-  let currentMonthKey = '';
-  let currentMonthLabel = '';
-  let currentDays: string[] = [];
-
-  const flush = () => {
-    if (currentDays.length) {
-      blocks.push(`${currentMonthLabel}\t${currentDays.join(', ')}`);
-    }
-  };
-
-  for (const date of dates) {
-    const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
-    if (monthKey !== currentMonthKey) {
-      flush();
-      currentMonthKey = monthKey;
-      currentMonthLabel = capitalize(format(date, 'LLLL', { locale: ru }));
-      currentDays = [];
-    }
-    currentDays.push(format(date, 'dd'));
-  }
-  flush();
-
-  return blocks.join('\n');
 }
 
 function lessonDurationHoursNumber(group: RealGroup): number {
@@ -403,17 +424,18 @@ function computeIncrementalDates(
   perLessonHours: number,
   baseHours: number,
   threeHours: number,
-  fourPlusHours: number
-): { datesIfThree: string; datesIfFourPlus: string } {
-  const allDates = flatLessonDates(group);
+  fourPlusHours: number,
+  isHoliday?: HolidayLookup
+): { datesIfThree: MonthGroups; datesIfFourPlus: MonthGroups } {
+  const allDates = flatLessonDates(group, isHoliday);
   const lessonsFor = (hours: number) => Math.round(hours / perLessonHours);
   const n2 = lessonsFor(baseHours);
   const n3 = lessonsFor(threeHours);
   const n4 = lessonsFor(fourPlusHours);
 
   return {
-    datesIfThree: formatDatesByMonth(allDates.slice(n2, n3)),
-    datesIfFourPlus: formatDatesByMonth(allDates.slice(n3, n4)),
+    datesIfThree: groupDatesByMonth(allDates.slice(n2, n3)),
+    datesIfFourPlus: groupDatesByMonth(allDates.slice(n3, n4)),
   };
 }
 
@@ -429,14 +451,15 @@ export function buildContractFileForStudent(
   template: ContractTemplate,
   student: Student,
   group: RealGroup,
-  adminName?: string
+  adminName?: string,
+  isHoliday?: HolidayLookup
 ): GeneratedContractFile {
   if (!template.fileBase64) {
     throw new Error('У шаблона нет загруженного файла');
   }
 
   const ageBracket = getAgeBracket(student.birthDate);
-  const courseHours = computeCourseHours(group, ageBracket);
+  const courseHours = computeCourseHours(group, ageBracket, isHoliday);
 
   const values: Record<string, string> = {};
   values.currentDate = format(new Date(), 'dd.MM.yyyy');
@@ -452,15 +475,13 @@ export function buildContractFileForStudent(
   values.volume = String(courseHours.hours);
   values.tiersClause = courseHours.tiersClause;
   values.refundTerms = courseHours.refundTerms;
-  values.datesIfThree = courseHours.datesIfThree;
-  values.datesIfFourPlus = courseHours.datesIfFourPlus;
   const duration = lessonDurationHours(group);
   if (duration) values.duration = duration;
   if (adminName) values.admin = adminName;
 
   const loopData: Record<string, string[]> = {};
   const needsMonthSchedule = template.loops.includes('months') || template.loops.includes('dates');
-  const monthSchedule = needsMonthSchedule ? scheduleByMonth(group) : null;
+  const monthSchedule = needsMonthSchedule ? groupDatesByMonth(flatLessonDates(group, isHoliday)) : null;
   for (const loop of template.loops) {
     if (loop === 'days') {
       loopData.days = group.schedule.map((s) => `${dayNames[s.dayOfWeek]} ${s.startTime}–${s.endTime}`);
@@ -468,6 +489,14 @@ export function buildContractFileForStudent(
       loopData.months = monthSchedule?.months ?? [];
     } else if (loop === 'dates') {
       loopData.dates = monthSchedule?.dateLines ?? [];
+    } else if (loop === 'monthsThree') {
+      loopData.monthsThree = courseHours.datesIfThree.months;
+    } else if (loop === 'daysThree') {
+      loopData.daysThree = courseHours.datesIfThree.dateLines;
+    } else if (loop === 'monthsFourPlus') {
+      loopData.monthsFourPlus = courseHours.datesIfFourPlus.months;
+    } else if (loop === 'daysFourPlus') {
+      loopData.daysFourPlus = courseHours.datesIfFourPlus.dateLines;
     } else {
       loopData[loop] = [];
     }

@@ -19,6 +19,7 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../com
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '../components/ui/hover-card';
 import { allTeachers, allStudents, allGroups } from '../data/sampleData';
 import { realGroups } from '../data/realGroups';
+import { useHolidayLookup } from '../data/holidays';
 import { DataStore } from '../data/store';
 import { TeacherScheduleItem, Teacher, Group, Student, ScheduleStatus, CellComment, TeacherComment, RecurrenceRule } from '../types';
 import { NormalizedTeacherScheduleItem } from '../types/normalized';
@@ -70,19 +71,20 @@ function isSunday(date: Date): boolean {
   return getDay(date) === 0;
 }
 
-function isHoliday(date: Date): string | null {
-  const holidays2026: Record<string, string> = {
-    '2026-01-01': 'Новый год',
-    '2026-01-07': 'Рождество',
-    '2026-02-23': 'День защитника Отечества',
-    '2026-03-08': 'Международный женский день',
-    '2026-05-01': 'Праздник Весны и Труда',
-    '2026-05-09': 'День Победы',
-    '2026-06-12': 'День России',
-    '2026-11-04': 'День народного единства',
-  };
-  const key = format(date, 'yyyy-MM-dd');
-  return holidays2026[key] || null;
+const HOLIDAY_OVERRIDES_KEY = 'dk-holiday-lesson-overrides-v1';
+
+/** Ключ занятия, которое админ вернул в выходной день вручную. */
+function holidayOverrideKey(date: Date, itemId: string): string {
+  return `${format(date, 'yyyy-MM-dd')}|${itemId}`;
+}
+
+function loadHolidayOverrides(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HOLIDAY_OVERRIDES_KEY) || '[]');
+    return new Set(Array.isArray(raw) ? (raw as string[]) : []);
+  } catch {
+    return new Set();
+  }
 }
 
 function formatTimeFromMinutes(minutes: number): string {
@@ -122,6 +124,9 @@ export default function TeacherSchedule() {
   const [selectedItem, setSelectedItem] = useState<TeacherScheduleItem | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [contextItem, setContextItem] = useState<TeacherScheduleItem | null>(null);
+  const [contextDay, setContextDay] = useState<Date | null>(null);
+  const isHoliday = useHolidayLookup();
+  const [holidayOverrides, setHolidayOverrides] = useState<Set<string>>(loadHolidayOverrides);
   const [recurrenceEditOpen, setRecurrenceEditOpen] = useState(false);
   const [recurrenceEditAction, setRecurrenceEditAction] = useState<'this' | 'future' | 'all'>('this');
   const [commentDialogOpen, setCommentDialogOpen] = useState(false);
@@ -508,11 +513,28 @@ export default function TeacherSchedule() {
     setAvailableRooms([]);
   };
 
-  const handleContextMenu = (e: React.MouseEvent, item: TeacherScheduleItem) => {
+  const handleContextMenu = (e: React.MouseEvent, item: TeacherScheduleItem, day: Date) => {
     e.preventDefault();
     e.stopPropagation();
     setContextItem(item);
+    setContextDay(day);
     setContextMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  /**
+   * В выходной занятия по умолчанию нет. Админ может вернуть конкретное занятие
+   * (например, школа всё же работает 4 ноября) — исключение живёт отдельно от справочника
+   * и касается только этого занятия в эту дату.
+   */
+  const toggleHolidayLesson = (day: Date, itemId: string) => {
+    const key = holidayOverrideKey(day, itemId);
+    setHolidayOverrides((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      localStorage.setItem(HOLIDAY_OVERRIDES_KEY, JSON.stringify([...next]));
+      return next;
+    });
   };
 
   const handleContextAction = (action: string) => {
@@ -1833,9 +1855,13 @@ export default function TeacherSchedule() {
                           const groupName = item.groupName || '';
                           const active = isCurrentTime(day, start, end);
                           const isCancelled = !startedGroup && item.status === 'cancelled';
+                          // Выходной из справочника снимает занятие, пока его не вернут вручную.
+                          const holidayOff =
+                            !!holidayName && !holidayOverrides.has(holidayOverrideKey(day, item.id));
+                          const struckThrough = isCancelled || holidayOff;
                           const hasLessonComment = !!item.comment;
                           const isPast = day < new Date(new Date().toDateString()) && !isSameDay(day, new Date());
-                          const isUpcoming = !isPast && !active && !isCancelled && isSameDay(day, new Date());
+                          const isUpcoming = !isPast && !active && !struckThrough && isSameDay(day, new Date());
 
                           const bgColor = typeColor.bg;
                           const borderColor = active ? '#EF4444' : typeColor.border;
@@ -1846,7 +1872,7 @@ export default function TeacherSchedule() {
                               <div
                                 className={`absolute left-0.5 right-0.5 rounded border overflow-hidden text-[11px] leading-snug cursor-pointer transition-all z-[5] ${
                                   active ? 'ring-1 ring-teal-400 bg-opacity-90' : ''
-                                } hover:shadow-md hover:-translate-y-0.5 hover:z-10`}
+                                } ${holidayOff ? 'opacity-60' : ''} hover:shadow-md hover:-translate-y-0.5 hover:z-10`}
                                 style={{
                                   top: `${top}px`,
                                   height: `${Math.max(height, 26)}px`,
@@ -1859,10 +1885,10 @@ export default function TeacherSchedule() {
                                 draggable
                                 onDragStart={(e) => handleDragStart(e, item)}
                                 onDragEnd={handleDragEnd}
-                                onContextMenu={(e) => handleContextMenu(e, item)}
+                                onContextMenu={(e) => handleContextMenu(e, item, day)}
                                 onClick={() => setLessonInfoItem(item)}
                               >
-                                <div className={`p-2 space-y-1 pointer-events-none ${isCancelled ? 'line-through relative' : ''}`}>
+                                <div className={`p-2 space-y-1 pointer-events-none ${struckThrough ? 'line-through relative' : ''}`}>
                                   {/* Top row: time + status badges */}
                                   <div className="flex items-center gap-1 flex-wrap">
                                     <p className="font-bold text-[10px] shrink-0 tracking-tight">
@@ -1874,7 +1900,12 @@ export default function TeacherSchedule() {
                                         Сейчас
                                       </span>
                                     )}
-                                    {isPast && !isCancelled && (
+                                    {holidayOff && (
+                                      <span className="text-[7px] font-medium text-red-500 px-1 leading-none no-underline">
+                                        {holidayName}
+                                      </span>
+                                    )}
+                                    {isPast && !isCancelled && !holidayOff && (
                                       <span className="text-[7px] text-muted-foreground px-1 leading-none">Завершено</span>
                                     )}
                                     {isUpcoming && (
@@ -2020,7 +2051,34 @@ export default function TeacherSchedule() {
               </button>
             )}
             <div className="border-t border-border/50 my-1" />
-            {contextItem.status === 'cancelled' ? (
+            {contextDay && isHoliday(contextDay) ? (
+              // В выходной день занятие и так не проводится — это не отдельное "отменено",
+              // а тот же самый переключатель "вернуть / снова сделать выходным". Обычный
+              // блок отмены здесь ни к чему: два способа отменить одно и то же только путают.
+              holidayOverrides.has(holidayOverrideKey(contextDay, contextItem.id)) ? (
+                <button
+                  className="w-full px-3 py-1.5 text-xs text-left hover:bg-muted flex items-center gap-2 text-amber-600"
+                  onClick={() => {
+                    toggleHolidayLesson(contextDay, contextItem.id);
+                    setContextMenuPos(null);
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Отменить занятие
+                </button>
+              ) : (
+                <button
+                  className="w-full px-3 py-1.5 text-xs text-left hover:bg-muted flex items-center gap-2 text-green-600"
+                  onClick={() => {
+                    toggleHolidayLesson(contextDay, contextItem.id);
+                    setContextMenuPos(null);
+                  }}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Вернуть занятие ({isHoliday(contextDay)})
+                </button>
+              )
+            ) : contextItem.status === 'cancelled' ? (
               <button
                 className="w-full px-3 py-1.5 text-xs text-left hover:bg-muted flex items-center gap-2 text-green-600"
                 onClick={() => handleContextAction('restore')}

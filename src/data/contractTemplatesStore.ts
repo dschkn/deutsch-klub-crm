@@ -64,14 +64,16 @@ export const fieldLabels: Record<string, string> = {
   parentPhone: 'Телефон родителя',
   refundTerms: 'Условия возврата',
   tiersClause: 'Пункт 3.4 (объём по числу учащихся)',
-  datesIfThree: 'Даты при 3 учащихся (п.10)',
-  datesIfFourPlus: 'Даты при 4+ учащихся (п.10)',
 };
 
 export const loopLabels: Record<string, string> = {
   days: 'График занятий',
   months: 'Месяцы занятий',
   dates: 'Даты занятий',
+  monthsThree: 'Месяцы при 3 учащихся (п.10)',
+  daysThree: 'Даты при 3 учащихся (п.10)',
+  monthsFourPlus: 'Месяцы при 4+ учащихся (п.10)',
+  daysFourPlus: 'Даты при 4+ учащихся (п.10)',
 };
 
 export function fieldLabel(key: string): string {
@@ -91,7 +93,7 @@ const initialTemplates: ContractTemplate[] = [
     ageBrackets: ['adult'],
     sortOrder: 1,
     fields: ['currentDate', 'number', 'studentFIO', 'studentDate', 'passport', 'passportWho', 'address', 'email', 'phone', 'level', 'volume', 'duration', 'price'],
-    loops: ['days', 'months', 'dates'],
+    loops: ['days', 'months', 'dates', 'monthsThree', 'daysThree', 'monthsFourPlus', 'daysFourPlus'],
     createdAt: new Date('2024-01-15'),
   },
   {

@@ -78,12 +78,15 @@ import {
   getAgeBracket,
   templateMatches,
   buildContractFileForStudent,
+  buildLessonSchedule,
 } from "../lib/contractGeneration";
 import { downloadBlob } from "../lib/docxTemplate";
 import { useCurrentUser } from "../hooks/use-auth";
 import { cn } from "../lib/utils";
 import type { Student } from "../types";
 import { useDictionaryValues } from "../data/dictionariesStore";
+import { useHolidayLookup, type HolidayLookup } from "../data/holidays";
+import { useCourseTypeOptions, useCourseTypeLabel } from "../data/courseTypes";
 
 const GROUPS_KEY = "dk-groups-workspace-v2";
 const TASKS_KEY = "dk-admin-kanban-v1";
@@ -236,7 +239,7 @@ function nextCourseLevel(level: string) {
     : `${String.fromCharCode(match[1].toUpperCase().charCodeAt(0) + 1)}1`;
 }
 
-function continuationRange(group: RealGroup) {
+function continuationRange(group: RealGroup, isHoliday?: HolidayLookup) {
   const schedule = group.schedule.length
     ? group.schedule
     : [{ dayOfWeek: new Date(group.endDate).getDay(), startTime: "19:00", endTime: "20:30" }];
@@ -248,6 +251,8 @@ function continuationRange(group: RealGroup) {
   for (let offset = 1; offset <= 370 && accumulatedHours < group.hours; offset += 1) {
     const date = new Date(cursor);
     date.setDate(cursor.getDate() + offset);
+    // В выходной занятия нет — часы не набегают, курс просто едет дальше.
+    if (isHoliday?.(date)) continue;
     const lessons = schedule.filter((item) => item.dayOfWeek === date.getDay());
     lessons.forEach((lesson) => {
       if (!startDate) startDate = new Date(date);
@@ -341,6 +346,16 @@ export default function Groups() {
     preferredDays: [] as string[],
     preferredTime: "",
   });
+  const groupLevelOptions = useDictionaryValues("levels", editDraft.level);
+  const textbookOptions = useDictionaryValues("textbooks", editDraft.textbook);
+  const professionOptions = useDictionaryValues(
+    "professions",
+    studentForm.profession,
+  );
+  const specialCourseOptions = useDictionaryValues("course_types");
+  const courseTypeOptions = useCourseTypeOptions(editDraft.courseType);
+  const isHoliday = useHolidayLookup();
+  const courseTypeLabel = useCourseTypeLabel();
 
   useEffect(() => {
     localStorage.setItem(GROUPS_KEY, JSON.stringify(workspace));
@@ -389,10 +404,19 @@ export default function Groups() {
 
   function handleGenerateContract(template: ContractTemplate, student: Student, group: RealGroup) {
     try {
-      const { blob, fileName, summary } = buildContractFileForStudent(template, student, group, currentUser?.fullName);
+      const { blob, fileName, summary } = buildContractFileForStudent(
+        template,
+        student,
+        group,
+        currentUser?.fullName,
+        isHoliday,
+      );
       downloadBlob(blob, fileName);
+      const holidayNote = summary.skippedHolidays.length
+        ? ` · без выходных: ${summary.skippedHolidays.map((h) => `${format(h.date, "dd.MM")} ${h.name}`).join(", ")}`
+        : "";
       toast.success(`Договор для ${student.name} сформирован`, {
-        description: `Мин. ${summary.hours} ак.ч. (${summary.dayType === 'saturday_morning' ? 'суббота утро' : 'будни'}, 2 чел.) · ${summary.refundTerms} · п.3.4: ${summary.tiersClause}`,
+        description: `Мин. ${summary.hours} ак.ч. (${summary.dayType === 'saturday_morning' ? 'суббота утро' : 'будни'}, 2 чел.)${holidayNote} · ${summary.refundTerms} · п.3.4: ${summary.tiersClause}`,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сформировать договор");
@@ -527,7 +551,7 @@ export default function Groups() {
       ? groups.find((group) => group.id === existingNextId)
       : undefined;
     const nextLevel = nextCourseLevel(selected.level);
-    const { startDate, endDate } = continuationRange(selected);
+    const { startDate, endDate } = continuationRange(selected, isHoliday);
     const newCode = String(7000 + (Date.now() % 2000));
     const continuationId = existingContinuation?.id || `continuation-${Date.now()}`;
     const originalMiddle =
@@ -1051,7 +1075,7 @@ export default function Groups() {
                           ["Номер группы", selected.code],
                           ["Язык", selected.language === "German" ? "Немецкий" : "Английский"],
                           ["Уровень", selected.level],
-                          ["Тип курса", selected.courseType],
+                          ["Тип курса", courseTypeLabel(selected.courseType)],
                           ["Объём курса", `${selected.hours} ак. ч.`],
                           ["Стоимость", `${selected.price.toLocaleString()} ₽`],
                           ["Учитель", selected.teacherName],
@@ -1581,31 +1605,35 @@ export default function Groups() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {[
-                            "group",
-                            "intensive",
-                            "mini",
-                            "club",
-                            "grammar",
-                            "phonetics",
-                          ].map((value) => (
-                            <SelectItem key={value} value={value}>
-                              {value}
+                          {courseTypeOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </ReferenceField>
                     <ReferenceField label="Уровень">
-                      <Input
+                      <Select
                         value={editDraft.level || ""}
-                        onChange={(e) =>
+                        onValueChange={(value) =>
                           setEditDraft((current) => ({
                             ...current,
-                            level: e.target.value,
+                            level: value,
                           }))
                         }
-                      />
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Уровень не выбран" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {groupLevelOptions.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </ReferenceField>
                     <ReferenceField label="Учитель">
                       <Input
@@ -1619,15 +1647,26 @@ export default function Groups() {
                       />
                     </ReferenceField>
                     <ReferenceField label="Учебник">
-                      <Input
+                      <Select
                         value={editDraft.textbook || ""}
-                        onChange={(e) =>
+                        onValueChange={(value) =>
                           setEditDraft((current) => ({
                             ...current,
-                            textbook: e.target.value,
+                            textbook: value,
                           }))
                         }
-                      />
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Учебник не выбран" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {textbookOptions.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </ReferenceField>
                     <ReferenceField label="Формат">
                       <Select
@@ -1790,31 +1829,11 @@ export default function Groups() {
                     })}
                   </TabsContent>
                   <TabsContent value="lessons" className="m-0 space-y-2">
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <p key={i} className="text-sm font-medium">
-                        {i + 1}:{" "}
-                        {format(
-                          new Date(
-                            new Date(
-                              editDraft.startDate || new Date(),
-                            ).getTime() +
-                              i * 3 * 86400000,
-                          ),
-                          "dd.MM.yyyy",
-                        )}{" "}
-                        {editDraft.schedule?.[
-                          i % Math.max(editDraft.schedule?.length || 1, 1)
-                        ]?.startTime || "19:00"}
-                        -
-                        {editDraft.schedule?.[
-                          i % Math.max(editDraft.schedule?.length || 1, 1)
-                        ]?.endTime || "20:30"}
-                      </p>
-                    ))}
+                    <GroupLessonList group={editDraft} isHoliday={isHoliday} />
                   </TabsContent>
                 </div>
               </ScrollArea>
-              <GroupEditPreview group={editDraft} />
+              <GroupEditPreview group={editDraft} isHoliday={isHoliday} />
             </div>
             <div className="flex justify-end gap-2 border-t px-6 py-3">
               <Button variant="outline" onClick={() => setEditOpen(false)}>
@@ -2077,15 +2096,26 @@ export default function Groups() {
                   </Select>
                 </ReferenceField>
                 <ReferenceField label="Профессия">
-                  <Input
+                  <Select
                     value={studentForm.profession}
-                    onChange={(e) =>
+                    onValueChange={(value) =>
                       setStudentForm((current) => ({
                         ...current,
-                        profession: e.target.value,
+                        profession: value,
                       }))
                     }
-                  />
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Профессия не выбрана" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {professionOptions.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {value}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </ReferenceField>
                 <ReferenceField label="Деятельность">
                   <Input
@@ -2171,8 +2201,11 @@ export default function Groups() {
                       <SelectValue placeholder="Тип не выбран" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="grammar">Грамматика</SelectItem>
-                      <SelectItem value="phonetics">Фонетика</SelectItem>
+                      {specialCourseOptions.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {value}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </ReferenceField>
@@ -2182,7 +2215,7 @@ export default function Groups() {
                       <SelectValue placeholder="Уровень не выбран" />
                     </SelectTrigger>
                     <SelectContent>
-                      {["A1", "A2", "B1", "B2", "C1"].map((value) => (
+                      {levelOptions.map((value) => (
                         <SelectItem key={value} value={value}>
                           {value}
                         </SelectItem>
@@ -2197,7 +2230,7 @@ export default function Groups() {
                       <SelectValue placeholder="Уровень не выбран" />
                     </SelectTrigger>
                     <SelectContent>
-                      {["A1", "A2", "B1", "B2", "C1"].map((value) => (
+                      {levelOptions.map((value) => (
                         <SelectItem key={value} value={value}>
                           {value}
                         </SelectItem>
@@ -2211,7 +2244,7 @@ export default function Groups() {
                       <SelectValue placeholder="Уровень не выбран" />
                     </SelectTrigger>
                     <SelectContent>
-                      {["A1", "A2", "B1", "B2", "C1"].map((value) => (
+                      {levelOptions.map((value) => (
                         <SelectItem key={value} value={value}>
                           {value}
                         </SelectItem>
@@ -2228,10 +2261,11 @@ export default function Groups() {
                       <SelectValue placeholder="Тип не выбран" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="grammar">Грамматика</SelectItem>
-                      <SelectItem value="conversation">
-                        Разговорный курс
-                      </SelectItem>
+                      {specialCourseOptions.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {value}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </ReferenceField>
@@ -2241,7 +2275,7 @@ export default function Groups() {
                       <SelectValue placeholder="Уровень не выбран" />
                     </SelectTrigger>
                     <SelectContent>
-                      {["A1", "A2", "B1", "B2", "C1"].map((value) => (
+                      {levelOptions.map((value) => (
                         <SelectItem key={value} value={value}>
                           {value}
                         </SelectItem>
@@ -2388,7 +2422,84 @@ function ReferenceField({
   );
 }
 
-function GroupEditPreview({ group }: { group: Partial<RealGroup> }) {
+/**
+ * График занятий группы. Выходные из справочника показываем зачёркнутыми: занятия в этот
+ * день нет и в объём курса он не идёт, но дата видна — иначе непонятно, почему курс
+ * заканчивается позже, чем ожидалось.
+ */
+function GroupLessonList({
+  group,
+  isHoliday,
+}: {
+  group: Partial<RealGroup>;
+  isHoliday: HolidayLookup;
+}) {
+  const ready = Boolean(group.startDate && group.endDate && group.schedule?.length);
+  const { dates, skipped } = ready
+    ? buildLessonSchedule(group as RealGroup, isHoliday)
+    : { dates: [], skipped: [] };
+
+  if (!ready) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Укажите даты курса и дни занятий, чтобы увидеть график.
+      </p>
+    );
+  }
+
+  const rows = [
+    ...dates.map((date) => ({ date, holiday: null as string | null })),
+    ...skipped.map((item) => ({ date: item.date, holiday: item.name })),
+  ].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const timeFor = (date: Date) => {
+    const item = (group.schedule || []).find((entry) => entry.dayOfWeek === date.getDay());
+    return item ? `${item.startTime}-${item.endTime}` : "";
+  };
+
+  let lessonNumber = 0;
+  return (
+    <>
+      <p className="pb-2 text-sm text-muted-foreground">
+        Занятий: <strong className="text-foreground">{dates.length}</strong>
+        {skipped.length > 0 && ` · выходных пропущено: ${skipped.length}`}
+      </p>
+      {rows.map((row) => {
+        if (row.holiday) {
+          return (
+            <p
+              key={row.date.toISOString()}
+              className="text-sm text-muted-foreground line-through decoration-red-400"
+            >
+              {format(row.date, "dd.MM.yyyy")} {timeFor(row.date)} — {row.holiday}
+            </p>
+          );
+        }
+        lessonNumber += 1;
+        return (
+          <p key={row.date.toISOString()} className="text-sm font-medium">
+            {lessonNumber}: {format(row.date, "dd.MM.yyyy")} {timeFor(row.date)}
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
+function GroupEditPreview({
+  group,
+  isHoliday,
+}: {
+  group: Partial<RealGroup>;
+  isHoliday: HolidayLookup;
+}) {
+  const ready = Boolean(group.startDate && group.endDate && group.schedule?.length);
+  const { dates, skipped } = ready
+    ? buildLessonSchedule(group as RealGroup, isHoliday)
+    : { dates: [], skipped: [] };
+  // Выходные не сокращают курс, а сдвигают его конец: показываем дату последнего занятия.
+  const lastLesson = dates[dates.length - 1];
+
   return (
     <aside className="bg-muted/20 p-5">
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-muted-foreground">
@@ -2421,13 +2532,23 @@ function GroupEditPreview({ group }: { group: Partial<RealGroup> }) {
         <p className="text-muted-foreground">
           Дата окончания:{" "}
           <strong className="text-foreground">
-            {group.endDate
-              ? format(new Date(group.endDate), "dd.MM.yyyy")
-              : "—"}
+            {lastLesson
+              ? format(lastLesson, "dd.MM.yyyy")
+              : group.endDate
+                ? format(new Date(group.endDate), "dd.MM.yyyy")
+                : "—"}
           </strong>
         </p>
+        {skipped.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Курс продлён на {skipped.length} занят
+            {skipped.length === 1 ? "ие" : "ия"}: выходные{" "}
+            {skipped.map((item) => format(item.date, "dd.MM")).join(", ")}
+          </p>
+        )}
         <p className="text-muted-foreground">
-          Количество занятий: <strong className="text-foreground">12</strong>
+          Количество занятий:{" "}
+          <strong className="text-foreground">{ready ? dates.length : "—"}</strong>
         </p>
       </div>
     </aside>

@@ -3,6 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
+import { Calendar as DatePicker } from '../components/ui/calendar';
+import { Checkbox } from '../components/ui/checkbox';
+import { ru } from 'date-fns/locale';
 import {
   Table,
   TableBody,
@@ -21,9 +24,21 @@ import {
 import { Label } from '../components/ui/label';
 import { ScrollArea } from '../components/ui/scroll-area';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../components/ui/alert-dialog';
+import {
   Plus,
   Search,
   Edit,
+  RotateCcw,
   Trash2,
   BookOpen,
   Clock,
@@ -41,8 +56,10 @@ import {
   addDictionaryItem,
   updateDictionaryItem,
   removeDictionaryItem,
+  resetDictionary,
   type DictionaryItem,
 } from '../data/dictionariesStore';
+import { parseHoliday, formatHolidayValue, holidayToDate } from '../data/holidays';
 
 const dictionaryIcons: Record<string, typeof Clock> = {
   duration: Clock,
@@ -57,6 +74,12 @@ const dictionaryIcons: Record<string, typeof Clock> = {
   textbooks: BookOpen,
 };
 
+/** Название после тире, без разбора даты — для предзаполнения поля «Название» при редактировании. */
+function holidayNamePart(value: string): string {
+  const [, ...nameParts] = value.split(/\s+[-—–]\s+/);
+  return nameParts.join(' - ').trim();
+}
+
 export default function Dictionaries() {
   const dictionaries = useDictionaries();
   const [selectedDictId, setSelectedDictId] = useState<string | null>(null);
@@ -64,7 +87,18 @@ export default function Dictionaries() {
   const [editItem, setEditItem] = useState<DictionaryItem | null>(null);
   const [isAdding, setIsAdding] = useState(false);
 
+  // Выходные редактируются календарём, а не текстом: даты для добавления...
+  const [holidayAddDates, setHolidayAddDates] = useState<Date[]>([]);
+  const [holidayAddName, setHolidayAddName] = useState('');
+  const [holidayAddAnnually, setHolidayAddAnnually] = useState(true);
+  // ...и отдельный диалог редактирования одной даты.
+  const [holidayEditItem, setHolidayEditItem] = useState<DictionaryItem | null>(null);
+  const [holidayEditDate, setHolidayEditDate] = useState<Date | undefined>(undefined);
+  const [holidayEditName, setHolidayEditName] = useState('');
+  const [holidayEditAnnually, setHolidayEditAnnually] = useState(true);
+
   const selectedDict = dictionaries.find(d => d.id === selectedDictId) || null;
+  const isHolidayDict = selectedDict?.id === 'holidays';
 
   const filteredItems = (selectedDict
     ? [...selectedDict.items].sort((a, b) => a.sortOrder - b.sortOrder)
@@ -75,6 +109,39 @@ export default function Dictionaries() {
     if (!selectedDict || !value.trim()) return;
     addDictionaryItem(selectedDict.id, value.trim());
     setIsAdding(false);
+  };
+
+  const resetHolidayAddForm = () => {
+    setHolidayAddDates([]);
+    setHolidayAddName('');
+    setHolidayAddAnnually(true);
+  };
+
+  const handleAddHolidays = () => {
+    if (!selectedDict || holidayAddDates.length === 0) return;
+    for (const date of holidayAddDates) {
+      addDictionaryItem(selectedDict.id, formatHolidayValue(date, holidayAddName, holidayAddAnnually));
+    }
+    setIsAdding(false);
+    resetHolidayAddForm();
+  };
+
+  const openHolidayEdit = (item: DictionaryItem) => {
+    const parsed = parseHoliday(item.value);
+    setHolidayEditItem(item);
+    setHolidayEditDate(parsed ? holidayToDate(parsed, new Date().getFullYear()) : new Date());
+    setHolidayEditName(holidayNamePart(item.value));
+    setHolidayEditAnnually(parsed ? !parsed.year : true);
+  };
+
+  const handleSaveHolidayEdit = () => {
+    if (!selectedDict || !holidayEditItem || !holidayEditDate) return;
+    updateDictionaryItem(
+      selectedDict.id,
+      holidayEditItem.id,
+      formatHolidayValue(holidayEditDate, holidayEditName, holidayEditAnnually),
+    );
+    setHolidayEditItem(null);
   };
 
   const handleEditItem = (itemId: string, newValue: string) => {
@@ -141,39 +208,115 @@ export default function Dictionaries() {
                     {selectedDict.items.length} значений
                   </p>
                 </div>
-                <Dialog open={isAdding} onOpenChange={setIsAdding}>
+                <div className="flex items-center gap-2">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="ghost" className="gap-2 text-muted-foreground">
+                      <RotateCcw className="h-4 w-4" />
+                      Сбросить
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Вернуть значения по умолчанию?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Справочник «{selectedDict.name}» вернётся к исходному списку.
+                        Добавленные и изменённые значения будут потеряны.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Отмена</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => resetDictionary(selectedDict.id)}>
+                        Сбросить
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <Dialog
+                  open={isAdding}
+                  onOpenChange={(open) => {
+                    setIsAdding(open);
+                    if (!open) resetHolidayAddForm();
+                  }}
+                >
                   <DialogTrigger asChild>
                     <Button size="sm" className="gap-2">
                       <Plus className="h-4 w-4" />
                       Добавить
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-sm">
-                    <DialogHeader>
-                      <DialogTitle>Добавить значение</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="grid gap-2">
-                        <Label>Значение</Label>
-                        <Input
-                          placeholder="Введите значение"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleAddItem(e.currentTarget.value);
-                            }
-                          }}
+                  {isHolidayDict ? (
+                    <DialogContent className="max-w-sm">
+                      <DialogHeader>
+                        <DialogTitle>Сделать даты выходными</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <DatePicker
+                          mode="multiple"
+                          selected={holidayAddDates}
+                          onSelect={(dates) => setHolidayAddDates(dates || [])}
+                          locale={ru}
+                          className="mx-auto"
                         />
+                        <div className="grid gap-2">
+                          <Label>Название (необязательно)</Label>
+                          <Input
+                            placeholder="Например, День школы"
+                            value={holidayAddName}
+                            onChange={(e) => setHolidayAddName(e.target.value)}
+                          />
+                        </div>
+                        <label className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={holidayAddAnnually}
+                            onCheckedChange={(checked) => setHolidayAddAnnually(checked === true)}
+                          />
+                          Повторяется каждый год
+                        </label>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs text-muted-foreground">
+                            {holidayAddDates.length > 0
+                              ? `Выбрано дат: ${holidayAddDates.length}`
+                              : 'Выберите одну или несколько дат в календаре'}
+                          </p>
+                          <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setIsAdding(false)}>Отмена</Button>
+                            <Button onClick={handleAddHolidays} disabled={holidayAddDates.length === 0}>
+                              Добавить
+                            </Button>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={() => setIsAdding(false)}>Отмена</Button>
-                        <Button onClick={() => {
-                          const input = document.querySelector('input[placeholder="Введите значение"]') as HTMLInputElement;
-                          handleAddItem(input?.value || '');
-                        }}>Добавить</Button>
+                    </DialogContent>
+                  ) : (
+                    <DialogContent className="max-w-sm">
+                      <DialogHeader>
+                        <DialogTitle>Добавить значение</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="grid gap-2">
+                          <Label>Значение</Label>
+                          <Input
+                            placeholder="Введите значение"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleAddItem(e.currentTarget.value);
+                              }
+                            }}
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" onClick={() => setIsAdding(false)}>Отмена</Button>
+                          <Button onClick={() => {
+                            const input = document.querySelector('input[placeholder="Введите значение"]') as HTMLInputElement;
+                            handleAddItem(input?.value || '');
+                          }}>Добавить</Button>
+                        </div>
                       </div>
-                    </div>
-                  </DialogContent>
+                    </DialogContent>
+                  )}
                 </Dialog>
+                </div>
               </CardHeader>
               <CardContent className="p-4">
                 <div className="mb-4">
@@ -202,7 +345,7 @@ export default function Dictionaries() {
                         <TableRow key={item.id}>
                           <TableCell className="text-sm text-muted-foreground">{index + 1}</TableCell>
                           <TableCell>
-                            {editItem?.id === item.id ? (
+                            {!isHolidayDict && editItem?.id === item.id ? (
                               <Input
                                 defaultValue={item.value}
                                 className="h-8"
@@ -225,7 +368,7 @@ export default function Dictionaries() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 w-7 p-0"
-                                onClick={() => setEditItem(item)}
+                                onClick={() => (isHolidayDict ? openHolidayEdit(item) : setEditItem(item))}
                               >
                                 <Edit className="h-3.5 w-3.5" />
                               </Button>
@@ -266,6 +409,42 @@ export default function Dictionaries() {
           )}
         </Card>
       </div>
+
+      <Dialog open={!!holidayEditItem} onOpenChange={(open) => !open && setHolidayEditItem(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Изменить выходной</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <DatePicker
+              mode="single"
+              selected={holidayEditDate}
+              onSelect={(date) => date && setHolidayEditDate(date)}
+              locale={ru}
+              className="mx-auto"
+            />
+            <div className="grid gap-2">
+              <Label>Название (необязательно)</Label>
+              <Input
+                placeholder="Например, День школы"
+                value={holidayEditName}
+                onChange={(e) => setHolidayEditName(e.target.value)}
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={holidayEditAnnually}
+                onCheckedChange={(checked) => setHolidayEditAnnually(checked === true)}
+              />
+              Повторяется каждый год
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setHolidayEditItem(null)}>Отмена</Button>
+              <Button onClick={handleSaveHolidayEdit} disabled={!holidayEditDate}>Сохранить</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
