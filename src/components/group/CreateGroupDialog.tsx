@@ -6,7 +6,7 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { DataStore } from '../../data/store';
 import { realGroups } from '../../data/realGroups';
-import { demoTeacherOptions } from '../../data/demoTeachers';
+import { getTeacherDirectory } from '../../data/teacherDirectory';
 import type { ScheduleItem } from '../../types';
 import { NormalizedGroup, NormalizedScheduleEntry } from '../../types/normalized';
 
@@ -34,6 +34,7 @@ interface CreateGroupDialogProps {
 
 export default function CreateGroupDialog({ open, onOpenChange, onCreated }: CreateGroupDialogProps) {
   const store = DataStore.getInstance();
+  const teachers = getTeacherDirectory().filter(teacher => teacher.active);
 
   const [name, setName] = useState('');
   const [language, setLanguage] = useState<'German' | 'English'>('German');
@@ -93,7 +94,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       courseType,
       hours,
       teacherId,
-      teacherName: demoTeacherOptions.find(t => t.id === teacherId)?.name || '',
+      teacherName: teachers.find(t => t.id === teacherId)?.name || '',
       textbook,
       studentIds: [],
       lessonIds: [],
@@ -131,7 +132,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       hours,
       price,
       teacherId,
-      teacherName: demoTeacherOptions.find(t => t.id === teacherId)?.name || '',
+      teacherName: teachers.find(t => t.id === teacherId)?.name || '',
       textbook,
       startDate: now,
       endDate: new Date(now.getFullYear() + 1, 0, 1),
@@ -169,7 +170,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
           groupLanguage: language,
           courseType,
           format: 'offline',
-          teacherName: demoTeacherOptions.find(t => t.id === teacherId)?.name || '',
+          teacherName: teachers.find(t => t.id === teacherId)?.name || '',
         });
       });
     }
@@ -245,7 +246,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
               <Select value={teacherId} onValueChange={setTeacherId}>
                 <SelectTrigger className="text-xs h-8"><SelectValue placeholder="Выберите..." /></SelectTrigger>
                 <SelectContent>
-                  {demoTeacherOptions.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  {teachers.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

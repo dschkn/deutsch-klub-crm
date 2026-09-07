@@ -67,6 +67,8 @@ import {
 } from "../data/demoAdministrators";
 import { importedStudents } from "../data/importedStudents";
 import { realGroups, type RealGroup } from "../data/realGroups";
+import { getTeacherDirectory } from "../data/teacherDirectory";
+import CreateGroupDialog from "../components/group/CreateGroupDialog";
 import { cn } from "../lib/utils";
 import type { Student } from "../types";
 
@@ -254,6 +256,7 @@ export default function Groups() {
       realGroups[0]?.id,
   );
   const [editOpen, setEditOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [editTab, setEditTab] = useState("data");
   const [editDraft, setEditDraft] = useState<Partial<RealGroup>>({});
   const [taskOpen, setTaskOpen] = useState(false);
@@ -342,6 +345,7 @@ export default function Groups() {
       })),
     [workspace],
   );
+  const activeTeachers = getTeacherDirectory().filter((teacher) => teacher.active);
   const selected = groups.find((group) => group.id === selectedId) || null;
   const visibleGroups = groups.filter(
     (group) =>
@@ -417,7 +421,7 @@ export default function Groups() {
       .join(", ");
     setStartGroupForm({
       teacherMessage: `Здравствуйте!\n\nГруппа ${getGroupTitle(selected)} стартует ${format(new Date(selected.startDate), "dd.MM.yyyy")}.\nУровень: ${selected.level}.\nРасписание: ${schedule}.\nКоличество человек: ${selected.studentIds.length}.\n\nПожалуйста, подтвердите получение информации.`,
-      teacherEmail: "",
+      teacherEmail: getTeacherDirectory().find((teacher) => teacher.id === selected.teacherId || teacher.name === selected.teacherName)?.email || "",
     });
     setStartEmailError("");
     setStartValidationErrors([]);
@@ -872,7 +876,7 @@ export default function Groups() {
               className="h-9 pl-9"
             />
           </div>
-          <Button size="sm" className="ml-auto h-8 gap-1.5 px-3 text-xs">
+          <Button size="sm" className="ml-auto h-8 gap-1.5 px-3 text-xs" onClick={() => setCreateOpen(true)}>
             <Plus className="h-3.5 w-3.5" />
             Добавить группу
           </Button>
@@ -1226,6 +1230,16 @@ export default function Groups() {
         </TabsContent>
       </Tabs>
 
+      <CreateGroupDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(groupId) => {
+          setWorkspace((current) => ({ ...current }));
+          setSelectedId(groupId);
+          setStatusTab("planned");
+        }}
+      />
+
       <Dialog open={startGroupOpen} onOpenChange={setStartGroupOpen}>
         <DialogContent className="flex h-[78vh] max-w-5xl flex-col gap-0 p-0">
           <DialogHeader className="border-b px-8 py-7">
@@ -1535,15 +1549,13 @@ export default function Groups() {
                       />
                     </ReferenceField>
                     <ReferenceField label="Учитель">
-                      <Input
-                        value={editDraft.teacherName || ""}
-                        onChange={(e) =>
-                          setEditDraft((current) => ({
-                            ...current,
-                            teacherName: e.target.value,
-                          }))
-                        }
-                      />
+                      <Select value={editDraft.teacherId || ""} onValueChange={(teacherId) => {
+                        const teacher = activeTeachers.find((item) => item.id === teacherId);
+                        setEditDraft((current) => ({ ...current, teacherId, teacherName: teacher?.name || "" }));
+                      }}>
+                        <SelectTrigger><SelectValue placeholder="Выберите учителя" /></SelectTrigger>
+                        <SelectContent>{activeTeachers.map((teacher) => <SelectItem key={teacher.id} value={teacher.id}>{teacher.name}</SelectItem>)}</SelectContent>
+                      </Select>
                     </ReferenceField>
                     <ReferenceField label="Учебник">
                       <Input
