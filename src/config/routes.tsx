@@ -16,6 +16,7 @@ export const protectedRoutes: ProtectedRoute[] = [
   { path: '/teachers', component: lazy(() => import('../pages/Teachers')) },
   { path: '/teacher-schedule', component: lazy(() => import('../pages/TeacherSchedule')) },
   { path: '/admin-schedule', component: lazy(() => import('../pages/AdminSchedule')) },
+  { path: '/administrators', component: lazy(() => import('../pages/Administrators')) },
   { path: '/clubs', component: lazy(() => import('../pages/Clubs')) },
   { path: '/contracts', component: lazy(() => import('../pages/Contracts')) },
   { path: '/dictionaries', component: lazy(() => import('../pages/Dictionaries')) },

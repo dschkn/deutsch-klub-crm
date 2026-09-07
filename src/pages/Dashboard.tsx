@@ -1,13 +1,15 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { addDays, format, startOfWeek } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Sparkles, TrendingUp, UserRound, UsersRound } from 'lucide-react';
+import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Plus, Sparkles, Trash2, TrendingUp, UserRound, UsersRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { demoAdministrators, demoAdminTasks, getShift, getShiftHours, type DemoBoardTask } from '../data/demoAdministrators';
+import { Input } from '../components/ui/input';
+import { demoAdminTasks, getShift, getShiftHours, type DemoBoardTask } from '../data/demoAdministrators';
+import { getAdminDirectory } from '../data/adminDirectory';
 import { importedStudents } from '../data/importedStudents';
 import { useCurrentUser } from '../hooks/use-auth';
 
@@ -27,12 +29,17 @@ const teamSchedule = [
 
 export default function Dashboard() {
   const { user, userId } = useCurrentUser();
+  const administrators = getAdminDirectory().filter(admin => admin.active);
+  const notesKey = `dk-personal-notes-${userId}`;
+  const [noteDraft, setNoteDraft] = useState('');
+  const [notes, setNotes] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(notesKey) || '[]'); } catch { return []; } });
+  useEffect(() => localStorage.setItem(notesKey, JSON.stringify(notes)), [notes, notesKey]);
   const adminIndex = useMemo(() => {
-    const byName = demoAdministrators.findIndex((admin) => user?.fullName?.includes(admin.shortName));
+    const byName = administrators.findIndex((admin) => user?.fullName?.includes(admin.shortName));
     if (byName >= 0) return byName;
-    return [...userId].reduce((sum, char) => sum + char.charCodeAt(0), 0) % demoAdministrators.length;
-  }, [user?.fullName, userId]);
-  const admin = demoAdministrators[adminIndex];
+    return [...userId].reduce((sum, char) => sum + char.charCodeAt(0), 0) % Math.max(administrators.length, 1);
+  }, [user?.fullName, userId, administrators]);
+  const admin = administrators[adminIndex] || getAdminDirectory()[0];
   const tasks = loadTasks();
   const personalTasks = tasks.filter((task) => task.status !== 'completed' && task.assigneeId === admin.id).slice(0, 5);
   const displayedTasks = personalTasks.length ? personalTasks : tasks.filter((task) => task.status !== 'completed').slice(adminIndex * 2, adminIndex * 2 + 4);
@@ -117,6 +124,7 @@ export default function Dashboard() {
         </CardContent>
       </Card>
     </div>
+    <Card className="mt-5 rounded-3xl border-0 bg-white/90 shadow-sm ring-1 ring-black/5"><CardHeader className="pb-3"><CardTitle className="text-base">Заметки</CardTitle><p className="text-xs text-slate-400">Личный быстрый блокнот — виден только в вашем профиле.</p></CardHeader><CardContent><form className="flex gap-2" onSubmit={event=>{event.preventDefault();if(!noteDraft.trim())return;setNotes(current=>[noteDraft.trim(),...current]);setNoteDraft('')}}><Input value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} placeholder="Записать, чтобы не держать в голове…"/><Button type="submit" size="icon" aria-label="Добавить заметку"><Plus className="h-4 w-4"/></Button></form><div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{notes.map((note,index)=><div key={`${note}-${index}`} className="flex items-start gap-3 border-l-2 border-amber-300 bg-[#faf8f2] px-3 py-3 text-sm"><span className="min-w-0 flex-1 whitespace-pre-wrap">{note}</span><Button size="icon" variant="ghost" className="h-7 w-7 flex-none" onClick={()=>setNotes(current=>current.filter((_,i)=>i!==index))}><Trash2 className="h-3.5 w-3.5 text-slate-400"/></Button></div>)}{!notes.length&&<p className="py-2 text-sm text-slate-400">Пока пусто. Голова официально освобождена.</p>}</div></CardContent></Card>
     <div className="mt-5 flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-4 text-sm text-white shadow-lg"><UsersRound className="h-4 w-4 text-emerald-300" /><span><strong>Команда:</strong> сегодня закрыто 14 задач, три запуска подготовлены без переносов.</span></div>
   </div>;
 }

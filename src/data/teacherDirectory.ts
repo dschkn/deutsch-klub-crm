@@ -7,6 +7,7 @@ export interface TeacherDirectoryEntry {
   name: string;
   email: string;
   phone: string;
+  avatar?: string;
   languages: TeacherLanguage[];
   employmentType: 'full_time' | 'part_time' | 'hourly';
   format: 'offline' | 'online' | 'both';
@@ -23,6 +24,7 @@ const seedTeachers = (): TeacherDirectoryEntry[] => demoTeacherOptions.map((teac
   name: teacher.name,
   email: demoTeacherUserMap[teacher.id]?.email || '',
   phone: demoTeacherUserMap[teacher.id]?.phone || '',
+  avatar: demoTeacherUserMap[teacher.id]?.avatar,
   languages: index % 5 === 0 ? ['German', 'English'] : ['German'],
   employmentType: index % 3 === 0 ? 'part_time' : 'hourly',
   format: teacher.isOnlineOnly ? 'online' : 'both',

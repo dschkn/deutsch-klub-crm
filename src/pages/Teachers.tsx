@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
@@ -57,6 +58,14 @@ export default function Teachers() {
     persist(teachers.map(t => t.id === teacher.id ? { ...t, active: true } : t));
     toast.success('Преподаватель восстановлен');
   };
+  const uploadAvatar = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return toast.error('Выберите изображение');
+    if (file.size > 2 * 1024 * 1024) return toast.error('Фотография должна быть меньше 2 МБ');
+    const reader = new FileReader();
+    reader.onload = () => setDraft(current => ({ ...current, avatar: String(reader.result) }));
+    reader.readAsDataURL(file);
+  };
 
   return <div className="space-y-6">
     <header className="flex flex-col gap-4 border-b pb-5 md:flex-row md:items-end md:justify-between">
@@ -75,7 +84,7 @@ export default function Teachers() {
     <div className="overflow-hidden border">
       <div className="hidden grid-cols-[minmax(220px,1.3fr)_1fr_1fr_160px_112px] gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground md:grid"><span>Учитель</span><span>Языки</span><span>Контакты</span><span>Нагрузка</span><span className="text-right">Действия</span></div>
       {filtered.map(teacher => <div key={teacher.id} className="grid gap-4 border-b px-5 py-4 last:border-0 md:grid-cols-[minmax(220px,1.3fr)_1fr_1fr_160px_112px] md:items-center">
-        <button className="text-left" onClick={() => { setDraft({ ...teacher }); setDialogOpen(true); }}><div className="font-medium">{teacher.name}</div><div className="mt-1 text-xs text-muted-foreground">{employmentLabel[teacher.employmentType]} · {formatLabel[teacher.format]}</div></button>
+        <button className="flex items-center gap-3 text-left" onClick={() => { setDraft({ ...teacher }); setDialogOpen(true); }}><Avatar className="h-10 w-10"><AvatarImage src={teacher.avatar} alt={teacher.name} /><AvatarFallback>{teacher.name.split(' ').map(part => part[0]).slice(0, 2).join('')}</AvatarFallback></Avatar><span><span className="block font-medium">{teacher.name}</span><span className="mt-1 block text-xs text-muted-foreground">{employmentLabel[teacher.employmentType]} · {formatLabel[teacher.format]}</span></span></button>
         <div className="flex flex-wrap gap-1">{teacher.languages.map(l => <Badge key={l} variant="outline" className="rounded-none font-normal">{languageLabel[l]}</Badge>)}</div>
         <div className="space-y-1 text-sm text-muted-foreground">{teacher.email && <div className="flex items-center gap-2"><Mail className="h-3.5 w-3.5" />{teacher.email}</div>}{teacher.phone && <div className="flex items-center gap-2"><Phone className="h-3.5 w-3.5" />{teacher.phone}</div>}{!teacher.email && !teacher.phone && 'Нет контактов'}</div>
         <div className="flex items-center gap-2 text-sm"><BookOpen className="h-4 w-4 text-muted-foreground" />{activeGroupCount(teacher)} активных</div>
@@ -84,6 +93,7 @@ export default function Teachers() {
       {!filtered.length && <div className="px-5 py-16 text-center text-sm text-muted-foreground">Никого не найдено</div>}
     </div>
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>{draft.id ? 'Редактирование учителя' : 'Добавление учителя'}</DialogTitle><DialogDescription>Данные из этого профиля используются в группах и расписании.</DialogDescription></DialogHeader><div className="grid gap-4 py-2 sm:grid-cols-2">
+      <div className="flex items-center gap-4 sm:col-span-2"><Avatar className="h-16 w-16"><AvatarImage src={draft.avatar} alt={draft.name} /><AvatarFallback>{draft.name ? draft.name.split(' ').map(part => part[0]).slice(0, 2).join('') : 'ФО'}</AvatarFallback></Avatar><div className="flex flex-wrap gap-2"><Label htmlFor="teacher-photo" className="inline-flex h-9 cursor-pointer items-center border px-4 text-sm font-medium hover:bg-muted">{draft.avatar ? 'Заменить фото' : 'Добавить фото'}</Label><Input id="teacher-photo" className="hidden" type="file" accept="image/*" onChange={event => uploadAvatar(event.target.files?.[0])} />{draft.avatar && <Button type="button" variant="ghost" onClick={() => setDraft({...draft, avatar: undefined})}>Удалить фото</Button>}<p className="w-full text-xs text-muted-foreground">Необязательно · JPG, PNG или WebP · до 2 МБ</p></div></div>
       <div className="space-y-1.5 sm:col-span-2"><Label>Имя и фамилия *</Label><Input autoFocus value={draft.name} onChange={e => setDraft({...draft, name:e.target.value})} placeholder="Анна Иванова" /></div>
       <div className="space-y-1.5"><Label>E-mail</Label><Input type="email" value={draft.email} onChange={e => setDraft({...draft, email:e.target.value})} /></div><div className="space-y-1.5"><Label>Телефон</Label><Input value={draft.phone} onChange={e => setDraft({...draft, phone:e.target.value})} /></div>
       <div className="space-y-1.5"><Label>Занятость</Label><Select value={draft.employmentType} onValueChange={v => setDraft({...draft, employmentType:v as TeacherDirectoryEntry['employmentType']})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(employmentLabel).map(([v,l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent></Select></div>

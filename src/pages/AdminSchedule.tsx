@@ -7,7 +7,8 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { demoAdministrators, demoAdminShifts } from '../data/demoAdministrators';
+import { demoAdminShifts } from '../data/demoAdministrators';
+import { getAdminDirectory } from '../data/adminDirectory';
 import { cn } from '../lib/utils';
 
 const STORAGE_KEY = 'dk-admin-schedule-overrides-v1';
@@ -30,15 +31,16 @@ function loadSchedule(): ScheduleMap {
 }
 
 export default function AdminSchedule() {
+  const activeAdmins = getAdminDirectory().filter(admin => admin.active);
   const [weekAnchor, setWeekAnchor] = useState(TODAY);
   const [selectedAdmin, setSelectedAdmin] = useState('all');
   const [schedule, setSchedule] = useState(loadSchedule);
   const weekStart = startOfWeek(weekAnchor, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(weekAnchor, { weekStartsOn: 1 });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
-  const administrators = selectedAdmin === 'all' ? demoAdministrators : demoAdministrators.filter((admin) => admin.id === selectedAdmin);
+  const administrators = selectedAdmin === 'all' ? activeAdmins : activeAdmins.filter((admin) => admin.id === selectedAdmin);
   const todayKey = format(TODAY, 'yyyy-MM-dd');
-  const onDutyToday = useMemo(() => demoAdministrators.filter((admin) => (schedule[todayKey]?.[admin.id] || []).length), [schedule, todayKey]);
+  const onDutyToday = useMemo(() => activeAdmins.filter((admin) => (schedule[todayKey]?.[admin.id] || []).length), [schedule, todayKey, activeAdmins]);
   useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(schedule)), [schedule]);
 
   const toggleHour = (date: string, adminId: string, hour: number) => setSchedule((current) => {
@@ -49,13 +51,13 @@ export default function AdminSchedule() {
 
   return <div className="space-y-4">
     <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-      <div><div className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-primary" /><h1 className="text-2xl font-bold tracking-tight">Расписание администраторов</h1></div><p className="mt-1 text-sm text-muted-foreground">Табель по часам: нажмите на ячейку, чтобы добавить или убрать рабочий час.</p></div>
+      <div><div className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-primary" /><h1 className="text-2xl font-bold tracking-tight">Смены админов</h1></div><p className="mt-1 text-sm text-muted-foreground">Табель по часам: нажмите на ячейку, чтобы добавить или убрать рабочий час.</p></div>
       <div className="flex gap-2"><div className="flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm"><Users className="h-4 w-4 text-emerald-600" /><span className="text-muted-foreground">Сегодня на смене</span><strong>{onDutyToday.length}</strong></div><Button variant="outline" size="sm" onClick={() => setWeekAnchor(TODAY)}>Сегодня</Button></div>
     </div>
     <Card className="overflow-hidden border-slate-300 shadow-sm">
       <div className="flex flex-col gap-3 border-b bg-slate-100 p-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-2"><Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setWeekAnchor((date) => subWeeks(date, 1))}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setWeekAnchor((date) => addWeeks(date, 1))}><ChevronRight className="h-4 w-4" /></Button><h2 className="ml-1 font-semibold">{format(weekStart, 'd MMMM', { locale: ru })} — {format(weekEnd, 'd MMMM yyyy', { locale: ru })}</h2></div>
-        <Select value={selectedAdmin} onValueChange={setSelectedAdmin}><SelectTrigger className="h-9 w-[250px] bg-white"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Все администраторы</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select>
+        <Select value={selectedAdmin} onValueChange={setSelectedAdmin}><SelectTrigger className="h-9 w-[250px] bg-white"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Все администраторы</SelectItem>{activeAdmins.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select>
       </div>
       <div className="overflow-x-auto bg-white"><div className="min-w-[1540px] text-[10px]">
         <div className="grid border-b-2 border-slate-500" style={{ gridTemplateColumns: '150px repeat(7, 1fr)' }}>

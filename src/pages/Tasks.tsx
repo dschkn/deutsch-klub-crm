@@ -38,13 +38,13 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Textarea } from '../components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import {
-  demoAdministrators,
   demoAdminTasks,
   type DemoBoardTask,
   type DemoTaskPriority,
   getNextShift,
   getShift,
 } from '../data/demoAdministrators';
+import { getAdminDirectory } from '../data/adminDirectory';
 import { importedStudents } from '../data/importedStudents';
 import { realGroups, type RealGroup } from '../data/realGroups';
 import { cn } from '../lib/utils';
@@ -60,17 +60,6 @@ const motivationalSlogans = {
 const TODAY = startOfDay(new Date());
 const TODAY_KEY = format(TODAY, 'yyyy-MM-dd');
 const weekdayGenitive = ['воскресенья', 'понедельника', 'вторника', 'среды', 'четверга', 'пятницы', 'субботы'];
-const columnGlass: Record<string, string> = {
-  unassigned: 'rgba(229, 222, 191, 0.72)',
-  'admin-01': 'rgba(187, 199, 219, 0.68)',
-  'admin-02': 'rgba(184, 214, 197, 0.68)',
-  'admin-03': 'rgba(204, 190, 226, 0.68)',
-  'admin-04': 'rgba(176, 207, 224, 0.68)',
-  'admin-05': 'rgba(223, 203, 176, 0.68)',
-  'admin-06': 'rgba(218, 186, 193, 0.68)',
-  'admin-07': 'rgba(184, 194, 211, 0.68)',
-};
-
 const priorityConfig: Record<DemoTaskPriority, { label: string; dot: string; badge: string }> = {
   low: { label: 'Низкий', dot: 'bg-slate-400', badge: 'border-slate-200 bg-slate-50 text-slate-700' },
   medium: { label: 'Обычный', dot: 'bg-amber-400', badge: 'border-amber-200 bg-amber-50 text-amber-800' },
@@ -267,6 +256,7 @@ function shiftLabel(adminId: string) {
 }
 
 export default function Tasks() {
+  const administrators = getAdminDirectory().filter(admin => admin.active);
   const [tasks, setTasks] = useState<DemoBoardTask[]>(loadTasks);
   const [trash, setTrash] = useState<DemoBoardTask[]>(loadTrash);
   const [trashOpen, setTrashOpen] = useState(false);
@@ -382,7 +372,7 @@ export default function Tasks() {
     setNewComment('');
   };
 
-  const columns = [{ id: 'unassigned', name: 'Неразобранное', assigneeId: null as string | null }, ...demoAdministrators.map((admin) => ({ id: admin.id, name: admin.shortName, assigneeId: admin.id }))];
+  const columns = [{ id: 'unassigned', name: 'Неразобранное', assigneeId: null as string | null }, ...administrators.map((admin) => ({ id: admin.id, name: admin.shortName, assigneeId: admin.id }))];
   const completedTodayCount = tasks.filter((task) => task.status === 'completed' && format(parseISO(task.completedAt || `${task.dueDate}T12:00:00`), 'yyyy-MM-dd') === TODAY_KEY).length;
   const todayTaskCount = tasks.filter((task) => task.status !== 'completed' && task.dueDate === TODAY_KEY).length;
   const motivation = useMemo(() => {
@@ -513,7 +503,7 @@ export default function Tasks() {
       >
         <div className="flex min-w-max items-start gap-3">
           {columns.map((column) => {
-            const admin = demoAdministrators.find((item) => item.id === column.assigneeId);
+            const admin = administrators.find((item) => item.id === column.assigneeId);
             const columnTasks = tasksFor(column.assigneeId);
             const isDragTarget = dragOverColumn === column.id;
             return (
@@ -522,7 +512,7 @@ export default function Tasks() {
                 data-no-board-pan
                 data-task-column
                 data-assignee-id={column.assigneeId ?? 'unassigned'}
-                style={{ backgroundColor: columnGlass[column.id] }}
+                style={{ backgroundColor: admin?.columnColor || 'rgba(229, 222, 191, 0.72)' }}
                 className={cn('w-[286px] flex-none rounded-xl border border-white/25 p-2 shadow-xl shadow-black/15 backdrop-blur-xl transition-all', isDragTarget && 'border-primary ring-2 ring-primary/30')}
                 onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverColumn(column.id); }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverColumn(null); }}
@@ -595,7 +585,7 @@ export default function Tasks() {
                         <div className="min-w-0"><p className="truncate font-medium">{task.title}</p><p className="truncate text-xs text-muted-foreground">{task.description}</p></div>
                         <Select value={task.assigneeId ?? 'unassigned'} onValueChange={(value) => updateTask(task.id, { assigneeId: value === 'unassigned' ? null : value, status: value === 'unassigned' ? 'new' : 'in_progress' })}>
                           <SelectTrigger className="h-8 bg-white" onClick={(event) => event.stopPropagation()}><SelectValue /></SelectTrigger>
-                          <SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent>
+                          <SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{administrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent>
                         </Select>
                         <span className={cn('text-right text-xs', due.className)}>{due.label}</span>
                       </div>
@@ -638,7 +628,7 @@ export default function Tasks() {
             <div className="grid gap-2"><Label htmlFor="new-task-title">Название</Label><Input id="new-task-title" autoFocus value={newTask.title} onChange={(event) => setNewTask((current) => ({ ...current, title: event.target.value }))} placeholder="Что нужно сделать?" /></div>
             <div className="grid gap-2"><Label htmlFor="new-task-description">Описание</Label><Textarea id="new-task-description" value={newTask.description} onChange={(event) => setNewTask((current) => ({ ...current, description: event.target.value }))} placeholder="Контекст и ожидаемый результат…" /></div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2"><Label>Исполнитель</Label><Select value={newTask.assigneeId} onValueChange={(value) => setNewTask((current) => ({ ...current, assigneeId: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Исполнитель</Label><Select value={newTask.assigneeId} onValueChange={(value) => setNewTask((current) => ({ ...current, assigneeId: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{administrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Срок</Label><Input type="date" value={newTask.dueDate} onChange={(event) => setNewTask((current) => ({ ...current, dueDate: event.target.value }))} /></div>
             </div>
             <div className="grid gap-2"><Label>Приоритет</Label><Select value={newTask.priority} onValueChange={(value) => setNewTask((current) => ({ ...current, priority: value as DemoTaskPriority }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(priorityConfig).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent></Select></div>
@@ -657,7 +647,7 @@ export default function Tasks() {
                   <p className="mb-3 text-xs text-muted-foreground">#{selectedTask.id.replace(/\D/g, '').slice(-7) || selectedTask.id.slice(-7)}</p>
                   <SheetTitle className="text-xl leading-snug">{selectedTask.title}</SheetTitle>
                   <SheetDescription className="sr-only">Подробности и редактирование задачи</SheetDescription>
-                  <div className="mt-5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><LayoutDashboard className="h-4 w-4" /><span>Задачи</span><span>›</span><span>Рабочая доска</span><span>›</span><span>{selectedTask.assigneeId ? demoAdministrators.find((admin) => admin.id === selectedTask.assigneeId)?.shortName : 'Неразобранное'}</span></div>
+                  <div className="mt-5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><LayoutDashboard className="h-4 w-4" /><span>Задачи</span><span>›</span><span>Рабочая доска</span><span>›</span><span>{selectedTask.assigneeId ? administrators.find((admin) => admin.id === selectedTask.assigneeId)?.shortName : 'Неразобранное'}</span></div>
                 </div>
               </SheetHeader>
             </div>
@@ -669,7 +659,7 @@ export default function Tasks() {
                 <Button variant="outline" className="ml-auto gap-2 bg-white" onClick={() => completeTask(selectedTask.id)}><Check className="h-4 w-4" />Завершить</Button>
               </div>
               <div className="grid gap-3">
-                <div className="grid grid-cols-[120px_1fr] items-center gap-3"><Label className="flex items-center gap-1.5 text-sm text-muted-foreground"><UserRound className="h-4 w-4" />Исполнитель</Label><Select value={selectedTask.assigneeId ?? 'unassigned'} onValueChange={(value) => updateTask(selectedTask.id, { assigneeId: value === 'unassigned' ? null : value, status: value === 'unassigned' ? 'new' : selectedTask.status === 'new' ? 'in_progress' : selectedTask.status })}><SelectTrigger className="h-9 border-0 bg-transparent shadow-none"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{demoAdministrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid grid-cols-[120px_1fr] items-center gap-3"><Label className="flex items-center gap-1.5 text-sm text-muted-foreground"><UserRound className="h-4 w-4" />Исполнитель</Label><Select value={selectedTask.assigneeId ?? 'unassigned'} onValueChange={(value) => updateTask(selectedTask.id, { assigneeId: value === 'unassigned' ? null : value, status: value === 'unassigned' ? 'new' : selectedTask.status === 'new' ? 'in_progress' : selectedTask.status })}><SelectTrigger className="h-9 border-0 bg-transparent shadow-none"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Неразобранное</SelectItem>{administrators.map((admin) => <SelectItem key={admin.id} value={admin.id}>{admin.name}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid grid-cols-[120px_1fr] items-center gap-3"><Label className="flex items-center gap-1.5 text-sm text-muted-foreground"><CalendarDays className="h-4 w-4" />Дата</Label><Input className="h-9 border-0 bg-transparent shadow-none" type="date" value={selectedTask.dueDate} onChange={(event) => updateTask(selectedTask.id, { dueDate: event.target.value })} /></div>
                 <div className="grid grid-cols-[120px_1fr] items-center gap-3"><Label className="flex items-center gap-1.5 text-sm text-muted-foreground"><Flame className="h-4 w-4" />Приоритет</Label><Select value={selectedTask.priority} onValueChange={(value) => updateTask(selectedTask.id, { priority: value as DemoTaskPriority })}><SelectTrigger className="h-9 border-0 bg-transparent shadow-none"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(priorityConfig).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent></Select></div>
               </div>
@@ -712,7 +702,7 @@ export default function Tasks() {
             {trash.map((task) => (
               <div key={task.id} className="flex items-center gap-3 rounded-lg border p-3">
                 <Trash2 className="h-4 w-4 flex-none text-muted-foreground" />
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{task.title}</p><p className="text-xs text-muted-foreground">{task.assigneeId ? demoAdministrators.find((admin) => admin.id === task.assigneeId)?.name : 'Без ответственного'}</p></div>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{task.title}</p><p className="text-xs text-muted-foreground">{task.assigneeId ? administrators.find((admin) => admin.id === task.assigneeId)?.name : 'Без ответственного'}</p></div>
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={() => restoreTask(task)}><RotateCcw className="h-3.5 w-3.5" />Восстановить</Button>
                 <Button variant="ghost" size="icon" aria-label="Удалить окончательно" onClick={() => setTrash((current) => current.filter((item) => item.id !== task.id))}><Trash2 className="h-4 w-4 text-red-500" /></Button>
               </div>
