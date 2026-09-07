@@ -47,9 +47,11 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
   const [maxStudents, setMaxStudents] = useState(8);
   const [scheduleEntries, setScheduleEntries] = useState<Partial<NormalizedScheduleEntry>[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
+  const classrooms = ['Аудитория 1', 'Аудитория 2', 'Аудитория 3', 'Аудитория 4'];
+  const zoomRooms = ['Zoom 1', 'Zoom 2', 'Zoom 3', 'Свой Zoom'];
 
   const addScheduleEntry = () => {
-    setScheduleEntries(prev => [...prev, { dayOfWeek: 1, startTime: '10:00', endTime: '11:30' }]);
+    setScheduleEntries(prev => [...prev, { dayOfWeek: 1, startTime: '10:00', endTime: '11:30', classroom: 'Аудитория 1' }]);
   };
 
   const updateScheduleEntry = (index: number, field: keyof NormalizedScheduleEntry, value: unknown) => {
@@ -67,6 +69,23 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
     if (price <= 0) errs.push('Укажите стоимость');
     if (hours <= 0) errs.push('Укажите количество часов');
     if (scheduleEntries.length === 0) errs.push('Добавьте хотя бы один день занятий');
+    scheduleEntries.forEach((entry, index) => {
+      const start = (entry.startTime || '10:00').replace(':', '');
+      const end = (entry.endTime || '11:30').replace(':', '');
+      const resource = entry.classroom || entry.zoomRoom;
+      if (!resource) errs.push(`Выберите аудиторию или Zoom для занятия ${index + 1}`);
+      if (resource === 'Свой Zoom') return;
+      const conflict = realGroups.some(group => group.schedule.some(item => {
+        if (item.dayOfWeek !== entry.dayOfWeek) return false;
+        const otherStart = item.startTime.replace(':', '');
+        const otherEnd = item.endTime.replace(':', '');
+        const overlap = start < otherEnd && end > otherStart;
+        const sameResource = resource && (item.classroom === resource || item.zoomRoom === resource);
+        const sameTeacher = group.teacherId === teacherId;
+        return overlap && (sameResource || sameTeacher);
+      }));
+      if (conflict) errs.push(`Конфликт расписания в занятии ${index + 1}: выберите другую аудиторию/Zoom или время`);
+    });
     setErrors(errs);
     if (errs.length > 0) return;
 
@@ -169,7 +188,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
           groupLevel: level,
           groupLanguage: language,
           courseType,
-          format: 'offline',
+          format: s.zoomRoom ? 'online' : 'offline',
           teacherName: teachers.find(t => t.id === teacherId)?.name || '',
         });
       });
@@ -292,6 +311,14 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
                   value={entry.startTime || '10:00'}
                   onChange={e => updateScheduleEntry(i, 'startTime', e.target.value)}
                 />
+                <Select value={entry.classroom ? 'classroom' : 'zoom'} onValueChange={v => {
+                  updateScheduleEntry(i, 'classroom', v === 'classroom' ? classrooms[0] : undefined);
+                  updateScheduleEntry(i, 'zoomRoom', v === 'zoom' ? zoomRooms[0] : undefined);
+                }}>
+                  <SelectTrigger className="w-[92px] text-xs h-7"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="classroom">Аудитория</SelectItem><SelectItem value="zoom">Zoom</SelectItem></SelectContent>
+                </Select>
+                {entry.classroom ? <Select value={entry.classroom} onValueChange={v => updateScheduleEntry(i, 'classroom', v)}><SelectTrigger className="w-[125px] text-xs h-7"><SelectValue /></SelectTrigger><SelectContent>{classrooms.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select> : <Select value={entry.zoomRoom} onValueChange={v => updateScheduleEntry(i, 'zoomRoom', v)}><SelectTrigger className="w-[125px] text-xs h-7"><SelectValue /></SelectTrigger><SelectContent>{zoomRooms.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select>}
                 <span className="text-xs text-slate-400">–</span>
                 <Input
                   className="text-xs h-7 w-[80px]"
