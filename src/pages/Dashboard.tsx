@@ -104,8 +104,8 @@ export default function Dashboard() {
         <CardContent className="flex flex-col items-center pt-2">
           <div className="relative h-32 w-64 overflow-hidden">
             <svg viewBox="0 0 240 130" className="h-full w-full" aria-label={`Недельная нагрузка ${weeklyProgress}%`}>
-              <path d="M 20 118 A 100 100 0 0 1 220 118" fill="none" stroke="#dedbd6" strokeWidth="11" strokeLinecap="round" />
-              <path d="M 20 118 A 100 100 0 0 1 220 118" fill="none" stroke="url(#weekLoad)" strokeWidth="11" strokeLinecap="round" pathLength="100" strokeDasharray={`${weeklyProgress} 100`} />
+              <path d="M 20 118 A 100 100 0 0 1 220 118" fill="none" stroke="#dedbd6" strokeWidth="6" strokeLinecap="round" />
+              <path d="M 20 118 A 100 100 0 0 1 220 118" fill="none" stroke="url(#weekLoad)" strokeWidth="6" strokeLinecap="round" pathLength="100" strokeDasharray={`${weeklyProgress} 100`} />
               <defs><linearGradient id="weekLoad" x1="0" x2="1"><stop stopColor="#d8b9ad" /><stop offset="0.55" stopColor="#d8cd9f" /><stop offset="1" stopColor="#9ebcad" /></linearGradient></defs>
             </svg>
             <div className="absolute inset-x-0 bottom-0 text-center"><p className="text-3xl font-semibold text-slate-800">{weeklyProgress}<span className="text-base font-normal text-slate-400">%</span></p><p className="text-[11px] text-slate-400">задач выполнено</p></div>
