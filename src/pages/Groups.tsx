@@ -1710,8 +1710,8 @@ export default function Groups() {
                     })}
                   </TabsContent>
                   <TabsContent value="lessons" className="m-0 space-y-2">
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <p key={i} className="text-sm font-medium">
+                    {Array.from({ length: Math.max(12, Math.ceil((editDraft.hours || 72) / 3)) }, (_, i) => (
+                      <p key={i} className={cn("rounded px-2 py-1 text-sm font-medium", i + 1 === Math.ceil(Math.max(1, (editDraft.hours || 72) / 3) / 2) && "bg-yellow-100 text-yellow-900")}>
                         {i + 1}:{" "}
                         {format(
                           new Date(
