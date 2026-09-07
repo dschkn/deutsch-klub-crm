@@ -4,6 +4,13 @@
 @tailwind components;
 @tailwind utilities;
 
+.task-board-scroll { scrollbar-color: transparent transparent; scrollbar-width: thin; }
+.task-board-scroll::-webkit-scrollbar { height: 8px; }
+.task-board-scroll::-webkit-scrollbar-track { background: transparent; }
+.task-board-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+.task-board-scroll.is-scrolling { scrollbar-color: rgba(100, 116, 139, .72) transparent; }
+.task-board-scroll.is-scrolling::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, .72); }
+
 @layer base {
   :root {
     --background: 0 0% 100%;

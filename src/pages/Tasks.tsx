@@ -23,7 +23,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Avatar, AvatarFallback } from '../components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
@@ -267,7 +267,10 @@ export default function Tasks() {
   const [query, setQuery] = useState('');
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const draggedRef = useRef(false);
-  const [newTask, setNewTask] = useState({ title: '', description: '', dueDate: TODAY_KEY, priority: 'medium' as DemoTaskPriority, assigneeId: 'unassigned' });
+  const [newTask, setNewTask] = useState({ title: '', description: '', dueDate: TODAY_KEY, priority: 'medium' as DemoTaskPriority, assigneeId: 'unassigned', relatedStudentIds: [] as string[] });
+  const [studentQuery, setStudentQuery] = useState('');
+  const [scrolling, setScrolling] = useState(false);
+  const scrollHideTimer = useRef<number | null>(null);
   const [newSubtask, setNewSubtask] = useState('');
   const [newComment, setNewComment] = useState('');
   const boardScrollRef = useRef<HTMLDivElement>(null);
@@ -337,7 +340,8 @@ export default function Tasks() {
   };
 
   const openCreate = (assigneeId: string | null) => {
-    setNewTask({ title: '', description: '', dueDate: TODAY_KEY, priority: 'medium', assigneeId: assigneeId ?? 'unassigned' });
+    setNewTask({ title: '', description: '', dueDate: TODAY_KEY, priority: 'medium', assigneeId: assigneeId ?? 'unassigned', relatedStudentIds: [] });
+    setStudentQuery('');
     setCreateFor(assigneeId);
   };
 
@@ -355,6 +359,7 @@ export default function Tasks() {
       subtasks: [],
       comments: [],
       createdAt: new Date().toISOString(),
+      relatedStudentIds: newTask.relatedStudentIds,
     };
     setTasks((current) => [task, ...current]);
     setCreateFor(undefined);
@@ -372,7 +377,7 @@ export default function Tasks() {
     setNewComment('');
   };
 
-  const columns = [{ id: 'unassigned', name: 'Неразобранное', assigneeId: null as string | null }, ...administrators.map((admin) => ({ id: admin.id, name: admin.shortName, assigneeId: admin.id }))];
+  const columns = [{ id: 'unassigned', name: 'Неразобранное', assigneeId: null as string | null }, ...administrators.map((admin) => ({ id: admin.id, name: admin.firstName, assigneeId: admin.id }))];
   const completedTodayCount = tasks.filter((task) => task.status === 'completed' && format(parseISO(task.completedAt || `${task.dueDate}T12:00:00`), 'yyyy-MM-dd') === TODAY_KEY).length;
   const todayTaskCount = tasks.filter((task) => task.status !== 'completed' && task.dueDate === TODAY_KEY).length;
   const motivation = useMemo(() => {
@@ -494,12 +499,12 @@ export default function Tasks() {
 
       {viewMode === 'board' ? <div
         ref={boardScrollRef}
-        className="-mx-1 min-h-[calc(100vh-10rem)] cursor-grab overflow-x-auto px-1 pb-3 select-none"
+        className={cn('-mx-1 min-h-[calc(100vh-10rem)] cursor-grab overflow-x-auto px-1 pb-3 select-none task-board-scroll', scrolling && 'is-scrolling')}
         onPointerDown={handleBoardPointerDown}
         onPointerMove={handleBoardPointerMove}
         onPointerUp={stopBoardPan}
         onPointerCancel={stopBoardPan}
-        onScroll={updateBackdropParallax}
+        onScroll={() => { updateBackdropParallax(); setScrolling(true); if (scrollHideTimer.current) window.clearTimeout(scrollHideTimer.current); scrollHideTimer.current = window.setTimeout(() => setScrolling(false), 1100); }}
       >
         <div className="flex min-w-max items-start gap-3">
           {columns.map((column) => {
@@ -521,7 +526,7 @@ export default function Tasks() {
                 <div className="mb-2 px-1 py-1">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      {admin ? <Avatar className="h-8 w-8"><AvatarFallback className={cn('text-[10px] font-semibold text-white', admin.accent)}>{admin.initials}</AvatarFallback></Avatar> : <div className="flex h-8 w-8 items-center justify-center rounded-full border border-dashed bg-white"><UserRound className="h-4 w-4 text-muted-foreground" /></div>}
+                      {admin ? <Avatar className="h-8 w-8"><AvatarImage src={admin.avatar}/><AvatarFallback className={cn('text-[10px] font-semibold text-white', admin.accent)}>{admin.initials}</AvatarFallback></Avatar> : <div className="flex h-8 w-8 items-center justify-center rounded-full border border-dashed bg-white"><UserRound className="h-4 w-4 text-muted-foreground" /></div>}
                       <div className="min-w-0"><h2 className="truncate text-sm font-semibold">{column.name}</h2><p className="truncate text-[10px] text-muted-foreground">{admin ? shiftLabel(admin.id) : 'Без исполнителя'}</p></div>
                     </div>
                     <Badge variant="outline" className="bg-white/70 text-xs">{columnTasks.length}</Badge>
@@ -632,6 +637,7 @@ export default function Tasks() {
               <div className="grid gap-2"><Label>Срок</Label><Input type="date" value={newTask.dueDate} onChange={(event) => setNewTask((current) => ({ ...current, dueDate: event.target.value }))} /></div>
             </div>
             <div className="grid gap-2"><Label>Приоритет</Label><Select value={newTask.priority} onValueChange={(value) => setNewTask((current) => ({ ...current, priority: value as DemoTaskPriority }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(priorityConfig).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent></Select></div>
+            <div className="grid gap-2"><Label>Связанные студенты</Label><Input value={studentQuery} onChange={event=>setStudentQuery(event.target.value)} placeholder="Начните вводить имя или фамилию"/>{studentQuery.trim()&&<div className="max-h-44 overflow-y-auto border bg-white p-1 shadow-sm">{importedStudents.filter(student=>student.name.toLowerCase().includes(studentQuery.trim().toLowerCase())).slice(0,20).map(student=><button type="button" key={student.id} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted" onClick={()=>{setNewTask(current=>({...current,relatedStudentIds:current.relatedStudentIds.includes(student.id)?current.relatedStudentIds.filter(id=>id!==student.id):[...current.relatedStudentIds,student.id]}));setStudentQuery('')}}><Checkbox checked={newTask.relatedStudentIds.includes(student.id)}/>{student.name}</button>)}</div>}<div className="flex flex-wrap gap-1">{newTask.relatedStudentIds.map(id=>{const student=importedStudents.find(item=>item.id===id);return student?<Badge key={id} variant="secondary" className="gap-1">{student.name}<button type="button" onClick={()=>setNewTask(current=>({...current,relatedStudentIds:current.relatedStudentIds.filter(item=>item!==id)}))}>×</button></Badge>:null})}</div></div>
           </div>
           <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setCreateFor(undefined)}>Отмена</Button><Button onClick={createTask} disabled={!newTask.title.trim()}>Создать</Button></div>
         </DialogContent>

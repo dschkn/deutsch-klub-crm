@@ -2,6 +2,9 @@ import { demoAdministrators, type DemoAdministrator } from './demoAdministrators
 
 export interface AdminDirectoryEntry extends DemoAdministrator {
   email: string;
+  firstName: string;
+  lastName: string;
+  patronymic?: string;
   phone: string;
   login: string;
   active: boolean;
@@ -19,6 +22,9 @@ function seed(): AdminDirectoryEntry[] {
   return demoAdministrators.map((admin, index) => ({
     ...admin,
     email: `admin${String(index + 1).padStart(2, '0')}@deutsch-klub.ru`,
+    firstName: admin.name.split(' ')[0] || '',
+    lastName: admin.name.split(' ')[1] || '',
+    patronymic: admin.name.split(' ').slice(2).join(' '),
     phone: '',
     login: `admin${index + 1}`,
     active: true,
@@ -30,7 +36,10 @@ function seed(): AdminDirectoryEntry[] {
 export function getAdminDirectory(): AdminDirectoryEntry[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved) as AdminDirectoryEntry[];
+    if (saved) return (JSON.parse(saved) as AdminDirectoryEntry[]).map(admin => {
+      const parts = admin.name.split(/\s+/);
+      return { ...admin, firstName: admin.firstName || parts[0] || '', lastName: admin.lastName || parts[1] || '', patronymic: admin.patronymic || parts.slice(2).join(' ') };
+    });
   } catch { /* use seed */ }
   return seed();
 }
