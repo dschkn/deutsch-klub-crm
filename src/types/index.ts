@@ -113,6 +113,7 @@ export interface ScheduleItem {
   dayOfWeek: number;
   startTime: string;
   endTime: string;
+  academicHours?: number;
   classroom?: string;
   zoomRoom?: string;
 }

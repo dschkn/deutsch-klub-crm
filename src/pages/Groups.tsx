@@ -70,6 +70,8 @@ import { getTeacherDirectory, subscribeToTeacherDirectory } from "../data/teache
 import { getAdminDirectory } from "../data/adminDirectory";
 import CreateGroupDialog from "../components/group/CreateGroupDialog";
 import { cn } from "../lib/utils";
+import { buildCourseOccurrences, endTimeForAcademicHours, nextCourseStart, scheduleAcademicHours } from "../lib/groupSchedule";
+import { DataStore } from "../data/store";
 import type { Student } from "../types";
 
 const GROUPS_KEY = "dk-groups-workspace-v2";
@@ -224,27 +226,15 @@ function nextCourseLevel(level: string) {
 }
 
 function continuationRange(group: RealGroup) {
-  const schedule = group.schedule.length
-    ? group.schedule
-    : [{ dayOfWeek: new Date(group.endDate).getDay(), startTime: "19:00", endTime: "20:30" }];
-  const cursor = new Date(group.endDate);
-  cursor.setHours(12, 0, 0, 0);
-  let accumulatedHours = 0;
-  let startDate: Date | null = null;
-  let endDate = new Date(cursor);
-  for (let offset = 1; offset <= 370 && accumulatedHours < group.hours; offset += 1) {
-    const date = new Date(cursor);
-    date.setDate(cursor.getDate() + offset);
-    const lessons = schedule.filter((item) => item.dayOfWeek === date.getDay());
-    lessons.forEach((lesson) => {
-      if (!startDate) startDate = new Date(date);
-      const [startHour, startMinute] = lesson.startTime.split(":").map(Number);
-      const [endHour, endMinute] = lesson.endTime.split(":").map(Number);
-      accumulatedHours += ((endHour * 60 + endMinute) - (startHour * 60 + startMinute)) / 45;
-      endDate = new Date(date);
-    });
-  }
-  return { startDate: startDate || new Date(cursor), endDate };
+  const schedule = group.schedule.length ? group.schedule : [{ dayOfWeek: new Date(group.endDate).getDay(), startTime: "19:00", endTime: "20:30", academicHours: 2 }];
+  const startDate = nextCourseStart(new Date(group.endDate), schedule);
+  const occurrences = buildCourseOccurrences(startDate, group.hours, schedule);
+  return { startDate, endDate: occurrences.at(-1)?.date || startDate };
+}
+
+function withCalculatedCourseDates<T extends Partial<RealGroup>>(group: T): T {
+  const occurrences = buildCourseOccurrences(group.startDate, Number(group.hours || 0), group.schedule || []);
+  return { ...group, endDate: occurrences.at(-1)?.date || group.endDate };
 }
 
 export default function Groups() {
@@ -271,6 +261,8 @@ export default function Groups() {
   const [taskStudentQuery, setTaskStudentQuery] = useState("");
   const [teacherDirectory, setTeacherDirectory] = useState(getTeacherDirectory);
   const [studentOpen, setStudentOpen] = useState(false);
+  const [studentListOpen, setStudentListOpen] = useState(false);
+  const [studentListQuery, setStudentListQuery] = useState("");
   const [studentProfileId, setStudentProfileId] = useState<string | null>(null);
   const [startGroupOpen, setStartGroupOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
@@ -326,6 +318,20 @@ export default function Groups() {
   useEffect(() => {
     localStorage.setItem(GROUPS_KEY, JSON.stringify(workspace));
   }, [workspace]);
+
+  useEffect(() => {
+    const store = DataStore.getInstance();
+    store.getAllScheduleItems().forEach((item) => {
+      if (!item.groupId) return;
+      const base = [...realGroups, ...(workspace.customGroups || [])].find(group => group.id === item.groupId);
+      if (!base) return;
+      const draft = workspace.groupDrafts[item.groupId] || {};
+      store.updateScheduleItem(item.id, {
+        currentStudents: (workspace.rosters[item.groupId] || base.studentIds).length,
+        capacity: draft.maxStudents || base.maxStudents,
+      });
+    });
+  }, [workspace.customGroups, workspace.groupDrafts, workspace.rosters]);
 
   useEffect(() => subscribeToTeacherDirectory(() => setTeacherDirectory(getTeacherDirectory())), []);
 
@@ -690,8 +696,14 @@ export default function Groups() {
   };
   const saveGroup = () => {
     if (!selected) return;
+    const calculatedDraft = withCalculatedCourseDates(editDraft);
+    if (!(calculatedDraft.schedule || []).length) {
+      toast.error("Нельзя рассчитать курс", { description: "Сначала выберите хотя бы один день занятий, время и количество ак. часов." });
+      setEditTab("days");
+      return;
+    }
     const conflicts: string[] = [];
-    (editDraft.schedule || []).forEach((entry) => {
+    (calculatedDraft.schedule || []).forEach((entry) => {
       const resource = entry.classroom || entry.zoomRoom;
       const start = entry.startTime.replace(':', '');
       const end = entry.endTime.replace(':', '');
@@ -700,8 +712,9 @@ export default function Groups() {
           if (other.dayOfWeek !== entry.dayOfWeek) return;
           const overlap = start < other.endTime.replace(':', '') && end > other.startTime.replace(':', '');
           if (!overlap) return;
-          if (editDraft.teacherId && group.teacherId === editDraft.teacherId) conflicts.push(`Преподаватель уже занят: ${dayNames[entry.dayOfWeek]} ${entry.startTime}–${entry.endTime}`);
-          if (resource && resource !== 'Свой Zoom' && (other.classroom === resource || other.zoomRoom === resource)) conflicts.push(`${resource} уже занят: ${dayNames[entry.dayOfWeek]} ${entry.startTime}–${entry.endTime}`);
+          const groupLabel = `${group.name} (#${group.code})`;
+          if (calculatedDraft.teacherId && group.teacherId === calculatedDraft.teacherId) conflicts.push(`Преподаватель ${calculatedDraft.teacherName || ""} уже ведёт ${groupLabel}: ${dayNames[entry.dayOfWeek]} ${other.startTime}–${other.endTime}. Новое занятие ${entry.startTime}–${entry.endTime}.`);
+          if (resource && resource !== 'Свой Zoom' && (other.classroom === resource || other.zoomRoom === resource)) conflicts.push(`${resource} занята группой ${groupLabel}: ${dayNames[entry.dayOfWeek]} ${other.startTime}–${other.endTime}. Новое занятие ${entry.startTime}–${entry.endTime}.`);
         });
       });
     });
@@ -709,10 +722,41 @@ export default function Groups() {
       Array.from(new Set(conflicts)).forEach(message => toast.error('Конфликт расписания', { description: message }));
       return;
     }
-    setWorkspace((current) => ({
-      ...current,
-      groupDrafts: { ...current.groupDrafts, [selected.id]: editDraft },
-    }));
+    const occurrences = buildCourseOccurrences(calculatedDraft.startDate, Number(calculatedDraft.hours || 0), calculatedDraft.schedule || []);
+    const continuationId = workspace.groupLinks[selected.id]?.nextId;
+    setWorkspace((current) => {
+      const groupDrafts = { ...current.groupDrafts, [selected.id]: calculatedDraft };
+      if (continuationId) {
+        const continuation = groups.find(group => group.id === continuationId);
+        if (continuation) {
+          const startDate = nextCourseStart(new Date(calculatedDraft.endDate!), calculatedDraft.schedule || []);
+          groupDrafts[continuationId] = withCalculatedCourseDates({ ...current.groupDrafts[continuationId], startDate, schedule: (calculatedDraft.schedule || []).map(item => ({ ...item })), teacherId: calculatedDraft.teacherId, teacherName: calculatedDraft.teacherName, hours: continuation.hours });
+        }
+      }
+      return { ...current, groupDrafts };
+    });
+    const store = DataStore.getInstance();
+    store.getAllScheduleItems().filter(item => item.groupId === selected.id).forEach(item => store.deleteScheduleItem(item.id));
+    occurrences.forEach((occurrence, index) => {
+      const [sh, sm] = occurrence.schedule.startTime.split(":").map(Number);
+      const [eh, em] = occurrence.schedule.endTime.split(":").map(Number);
+      const start = new Date(occurrence.date); start.setHours(sh, sm, 0, 0);
+      const end = new Date(occurrence.date); end.setHours(eh, em, 0, 0);
+      store.addScheduleItem({ id: `group_${selected.id}_${format(occurrence.date, "yyyyMMdd")}_${index}`, teacherId: calculatedDraft.teacherId || "", groupId: selected.id, lessonType: calculatedDraft.courseType === "individual" ? "individual" : "lesson", roomId: occurrence.schedule.classroom, zoomRoomId: occurrence.schedule.zoomRoom, start, end, status: "planned", commentIds: [], createdAt: new Date(), updatedAt: new Date(), groupName: calculatedDraft.name || selected.name, groupLevel: calculatedDraft.level || selected.level, groupLanguage: calculatedDraft.language || selected.language, courseType: calculatedDraft.courseType || selected.courseType, format: occurrence.schedule.zoomRoom ? "online" : "offline", teacherName: calculatedDraft.teacherName || "Преподаватель не назначен", classroomName: occurrence.schedule.classroom, currentStudents: (calculatedDraft.studentIds || selected.studentIds).length, capacity: calculatedDraft.maxStudents || selected.maxStudents });
+    });
+    if (continuationId) {
+      const continuation = groups.find(group => group.id === continuationId);
+      if (continuation) {
+        const continuationStart = nextCourseStart(new Date(calculatedDraft.endDate!), calculatedDraft.schedule || []);
+        const continuationOccurrences = buildCourseOccurrences(continuationStart, continuation.hours, calculatedDraft.schedule || []);
+        store.getAllScheduleItems().filter(item => item.groupId === continuationId).forEach(item => store.deleteScheduleItem(item.id));
+        continuationOccurrences.forEach((occurrence, index) => {
+          const [sh, sm] = occurrence.schedule.startTime.split(":").map(Number); const [eh, em] = occurrence.schedule.endTime.split(":").map(Number);
+          const start = new Date(occurrence.date); start.setHours(sh, sm, 0, 0); const end = new Date(occurrence.date); end.setHours(eh, em, 0, 0);
+          store.addScheduleItem({ id: `group_${continuationId}_${format(occurrence.date, "yyyyMMdd")}_${index}`, teacherId: calculatedDraft.teacherId || "", groupId: continuationId, lessonType: continuation.courseType === "individual" ? "individual" : "lesson", roomId: occurrence.schedule.classroom, zoomRoomId: occurrence.schedule.zoomRoom, start, end, status: "planned", commentIds: [], createdAt: new Date(), updatedAt: new Date(), groupName: continuation.name, groupLevel: continuation.level, groupLanguage: continuation.language, courseType: continuation.courseType, format: occurrence.schedule.zoomRoom ? "online" : "offline", teacherName: calculatedDraft.teacherName || "Преподаватель не назначен", classroomName: occurrence.schedule.classroom, currentStudents: continuation.studentIds.length, capacity: continuation.maxStudents });
+        });
+      }
+    }
     setEditOpen(false);
     toast.success("Группа обновлена", {
       description: "Изменения доступны во всех представлениях группы.",
@@ -832,6 +876,13 @@ export default function Groups() {
       description:
         "Его профиль сохранён и остаётся доступен через общий поиск.",
     });
+  };
+  const addExistingStudent = (studentId: string) => {
+    if (!selected || selected.studentIds.includes(studentId)) return;
+    setWorkspace((current) => ({ ...current, rosters: { ...current.rosters, [selected.id]: [...(current.rosters[selected.id] || selected.studentIds), studentId] }, paymentMarks: { ...current.paymentMarks, [`${selected.id}:${studentId}`]: ["studying"] } }));
+    setStudentListOpen(false);
+    setStudentListQuery("");
+    toast.success("Студент добавлен в группу");
   };
   const toggleMark = (studentId: string, mark: PayMark) => {
     if (!selected) return;
@@ -1011,7 +1062,7 @@ export default function Groups() {
                           onClick={() => setStudentOpen(true)}
                         >
                           <UserPlus className="h-3.5 w-3.5" />
-                          Добавить студента
+                          Добавить нового студента
                         </Button>
                         <Button
                           variant="outline"
@@ -1108,6 +1159,12 @@ export default function Groups() {
                         </div>
                       </section>
                     </div>
+                    <section className="mb-4 border-t pt-4">
+                      <h3 className="mb-3 font-semibold">Календарь занятий</h3>
+                      <div className="max-w-sm overflow-hidden rounded-lg border">
+                        <GroupEditPreview group={selected} />
+                      </div>
+                    </section>
                     <div className="flex items-center justify-between border-t pt-3">
                       <Button
                         size="sm"
@@ -1141,10 +1198,7 @@ export default function Groups() {
                         <h3 className="font-semibold">
                           Студенты группы ({roster.length})
                         </h3>
-                        <Badge variant="outline">
-                          Мест:{" "}
-                          {Math.max(0, selected.maxStudents - roster.length)}
-                        </Badge>
+                        <div className="flex items-center gap-2"><Button size="sm" variant="outline" className="gap-1.5" onClick={() => setStudentListOpen(true)}><UserPlus className="h-3.5 w-3.5" />Добавить студента из списка</Button><Badge variant="outline">Мест: {Math.max(0, selected.maxStudents - roster.length)}</Badge></div>
                       </div>
                       <div className="overflow-hidden rounded-lg border">
                         <Table>
@@ -1668,6 +1722,7 @@ export default function Groups() {
                                           dayOfWeek: day,
                                           startTime: "19:00",
                                           endTime: "20:30",
+                                          academicHours: 2,
                                           classroom: "Офлайн",
                                         },
                                       ].sort((a, b) => a.dayOfWeek - b.dayOfWeek)
@@ -1701,13 +1756,16 @@ export default function Groups() {
                                     ...current,
                                     schedule: (current.schedule || []).map((entry) =>
                                       entry.dayOfWeek === day
-                                        ? { ...entry, startTime: e.target.value }
+                                        ? { ...entry, startTime: e.target.value, endTime: endTimeForAcademicHours(e.target.value, entry.academicHours || scheduleAcademicHours(entry) || 2) }
                                         : entry,
                                     ),
                                   }))
                                 }
                               />
-                              <Select defaultValue="3">
+                              <Select value={String(item.academicHours || scheduleAcademicHours(item) || 2)} onValueChange={(value) => setEditDraft((current) => ({
+                                ...current,
+                                schedule: (current.schedule || []).map(entry => entry.dayOfWeek === day ? { ...entry, academicHours: Number(value), endTime: endTimeForAcademicHours(entry.startTime, Number(value)) } : entry),
+                              }))}>
                                 <SelectTrigger>
                                   <SelectValue />
                                 </SelectTrigger>
@@ -1751,27 +1809,16 @@ export default function Groups() {
                     })}
                   </TabsContent>
                   <TabsContent value="lessons" className="m-0 space-y-2">
-                    {Array.from({ length: Math.max(12, Math.ceil((editDraft.hours || 72) / 3)) }, (_, i) => (
-                      <p key={i} className={cn("rounded px-2 py-1 text-sm font-medium", i + 1 === Math.ceil(Math.max(1, (editDraft.hours || 72) / 3) / 2) && "bg-yellow-100 text-yellow-900")}>
+                    {buildCourseOccurrences(editDraft.startDate, Number(editDraft.hours || 0), editDraft.schedule || []).map((occurrence, i, all) => (
+                      <p key={`${occurrence.date.toISOString()}-${i}`} className={cn("rounded px-2 py-1 text-sm font-medium", i === Math.floor((all.length - 1) / 2) && "bg-orange-100 text-orange-900 ring-1 ring-orange-300")}>
                         {i + 1}:{" "}
-                        {format(
-                          new Date(
-                            new Date(
-                              editDraft.startDate || new Date(),
-                            ).getTime() +
-                              i * 3 * 86400000,
-                          ),
-                          "dd.MM.yyyy",
-                        )}{" "}
-                        {editDraft.schedule?.[
-                          i % Math.max(editDraft.schedule?.length || 1, 1)
-                        ]?.startTime || "19:00"}
+                        {format(occurrence.date, "dd.MM.yyyy")}{" "}
+                        {occurrence.schedule.startTime}
                         -
-                        {editDraft.schedule?.[
-                          i % Math.max(editDraft.schedule?.length || 1, 1)
-                        ]?.endTime || "20:30"}
+                        {occurrence.schedule.endTime}
                       </p>
                     ))}
+                    {!buildCourseOccurrences(editDraft.startDate, Number(editDraft.hours || 0), editDraft.schedule || []).length && <p className="rounded border border-dashed p-4 text-sm text-muted-foreground">Сначала выберите дни, время и ак. часы занятия.</p>}
                   </TabsContent>
                 </div>
               </ScrollArea>
@@ -1913,6 +1960,16 @@ export default function Groups() {
               <Button onClick={saveTask}>Добавить задачу</Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={studentListOpen} onOpenChange={setStudentListOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Добавить студента из списка</DialogTitle><DialogDescription>Поиск по имени, фамилии, телефону или e-mail. Новый профиль при этом не создаётся.</DialogDescription></DialogHeader>
+          <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" autoFocus value={studentListQuery} onChange={event => setStudentListQuery(event.target.value)} placeholder="Начните вводить имя или фамилию" /></div>
+          <ScrollArea className="h-80 rounded-lg border">
+            <div className="divide-y">{students.filter(student => !selected?.studentIds.includes(student.id) && `${student.name} ${student.phone} ${student.email}`.toLowerCase().includes(studentListQuery.trim().toLowerCase())).map(student => <button type="button" key={student.id} onClick={() => addExistingStudent(student.id)} className="flex w-full items-center justify-between p-3 text-left hover:bg-muted"><span><span className="block font-medium">{student.name}</span><span className="text-xs text-muted-foreground">{student.phone} · {student.email}</span></span><Plus className="h-4 w-4 text-teal-600" /></button>)}</div>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
 
@@ -2364,24 +2421,38 @@ function ReferenceField({
 }
 
 function GroupEditPreview({ group }: { group: Partial<RealGroup> }) {
+  const occurrences = buildCourseOccurrences(group.startDate, Number(group.hours || 0), group.schedule || []);
+  const start = group.startDate ? new Date(group.startDate) : new Date();
+  const monthStart = new Date(start.getFullYear(), start.getMonth(), 1, 12);
+  const gridStart = new Date(monthStart);
+  gridStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
+  const occurrenceKeys = new Set(occurrences.map(item => format(item.date, "yyyy-MM-dd")));
+  const midpointKey = occurrences.length ? format(occurrences[Math.floor((occurrences.length - 1) / 2)].date, "yyyy-MM-dd") : "";
+  const endDate = occurrences.at(-1)?.date || group.endDate;
   return (
-    <aside className="bg-muted/20 p-5">
+    <aside className="bg-muted/20 p-5" aria-live="polite">
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-muted-foreground">
         {["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"].map((day) => (
           <span key={day}>{day}</span>
         ))}
-        {Array.from({ length: 35 }, (_, index) => (
-          <span
-            key={index}
+        {Array.from({ length: 42 }, (_, index) => {
+          const date = new Date(gridStart); date.setDate(gridStart.getDate() + index);
+          const key = format(date, "yyyy-MM-dd");
+          const isLesson = occurrenceKeys.has(key);
+          const isMiddle = key === midpointKey;
+          return <span
+            key={key}
             className={cn(
               "rounded py-2",
-              index > 15 && index < 31 ? "bg-sky-100" : "",
-              [19, 21, 26, 28].includes(index) && "bg-teal-500 text-white",
+              date.getMonth() !== start.getMonth() && "opacity-35",
+              isLesson && "bg-teal-500 text-white",
+              isMiddle && "bg-orange-400 font-bold text-white ring-2 ring-orange-200",
             )}
+            title={isMiddle ? "Середина курса" : isLesson ? "Занятие" : undefined}
           >
-            {(index % 31) + 1}
-          </span>
-        ))}
+            {date.getDate()}
+          </span>;
+        })}
       </div>
       <div className="mt-5 space-y-2 text-sm">
         <p className="font-semibold">💡{group.name || "Учебная группа"}</p>
@@ -2396,14 +2467,15 @@ function GroupEditPreview({ group }: { group: Partial<RealGroup> }) {
         <p className="text-muted-foreground">
           Дата окончания:{" "}
           <strong className="text-foreground">
-            {group.endDate
-              ? format(new Date(group.endDate), "dd.MM.yyyy")
+            {endDate
+              ? format(new Date(endDate), "dd.MM.yyyy")
               : "—"}
           </strong>
         </p>
         <p className="text-muted-foreground">
-          Количество занятий: <strong className="text-foreground">12</strong>
+          Количество занятий: <strong className="text-foreground">{occurrences.length || "—"}</strong>
         </p>
+        {!group.schedule?.length && <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">Выберите дни и время занятий — без них курс сохранить нельзя.</p>}
       </div>
     </aside>
   );

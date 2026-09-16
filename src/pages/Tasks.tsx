@@ -225,7 +225,14 @@ function loadTasks(): DemoBoardTask[] {
     const realTasks = Array.isArray(parsed)
       ? (parsed as DemoBoardTask[]).filter((task) => !demoIds.has(task.id))
       : [];
-    return addDailyRegulationTasks(realTasks);
+    const tasks = addDailyRegulationTasks(realTasks);
+    const cleanupKey = 'dk-unassigned-cleanup-2026-09';
+    if (!window.localStorage.getItem(cleanupKey)) {
+      window.localStorage.setItem(cleanupKey, 'done');
+      let unassignedKept = 0;
+      return tasks.filter((task) => task.assigneeId !== null || unassignedKept++ < 4);
+    }
+    return tasks;
   } catch {
     return addDailyRegulationTasks([]);
   }

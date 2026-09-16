@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -9,6 +10,8 @@ import { realGroups } from '../../data/realGroups';
 import { getTeacherDirectory } from '../../data/teacherDirectory';
 import type { ScheduleItem } from '../../types';
 import { NormalizedGroup, NormalizedScheduleEntry } from '../../types/normalized';
+import { buildCourseOccurrences, endTimeForAcademicHours } from '../../lib/groupSchedule';
+import { cn } from '../../lib/utils';
 
 const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
@@ -43,18 +46,20 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
   const [teacherId, setTeacherId] = useState('');
   const [price, setPrice] = useState(8000);
   const [hours, setHours] = useState(72);
+  const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [textbook, setTextbook] = useState('');
   const [maxStudents, setMaxStudents] = useState(8);
-  const [scheduleEntries, setScheduleEntries] = useState<Partial<NormalizedScheduleEntry>[]>([]);
+  const [scheduleEntries, setScheduleEntries] = useState<(Partial<NormalizedScheduleEntry> & { academicHours?: number })[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const classrooms = ['Аудитория 1', 'Аудитория 2', 'Аудитория 3', 'Аудитория 4'];
   const zoomRooms = ['Zoom 1', 'Zoom 2', 'Zoom 3', 'Свой Zoom'];
+  const occurrences = useMemo(() => buildCourseOccurrences(new Date(`${startDate}T12:00:00`), hours, scheduleEntries as ScheduleItem[]), [startDate, hours, scheduleEntries]);
 
   const addScheduleEntry = () => {
-    setScheduleEntries(prev => [...prev, { dayOfWeek: 1, startTime: '10:00', endTime: '11:30', classroom: 'Аудитория 1' }]);
+    setScheduleEntries(prev => [...prev, { dayOfWeek: 1, startTime: '10:00', endTime: '11:30', academicHours: 2, classroom: 'Аудитория 1' }]);
   };
 
-  const updateScheduleEntry = (index: number, field: keyof NormalizedScheduleEntry, value: unknown) => {
+  const updateScheduleEntry = (index: number, field: keyof NormalizedScheduleEntry | 'academicHours', value: unknown) => {
     setScheduleEntries(prev => prev.map((e, i) => i === index ? { ...e, [field]: value } : e));
   };
 
@@ -74,7 +79,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       const resource = entry.classroom || entry.zoomRoom;
       if (!resource) errs.push(`Выберите аудиторию или Zoom для занятия ${index + 1}`);
       if (resource === 'Свой Zoom') return;
-      const conflict = realGroups.some(group => group.schedule.some(item => {
+      const conflict = realGroups.find(group => group.schedule.some(item => {
         if (item.dayOfWeek !== entry.dayOfWeek) return false;
         const otherStart = item.startTime.replace(':', '');
         const otherEnd = item.endTime.replace(':', '');
@@ -83,7 +88,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
         const sameTeacher = group.teacherId === teacherId;
         return overlap && (sameResource || sameTeacher);
       }));
-      if (conflict) errs.push(`Конфликт расписания в занятии ${index + 1}: выберите другую аудиторию/Zoom или время`);
+      if (conflict) errs.push(`Занятие ${index + 1}: ${resource || 'ресурс'} или преподаватель уже заняты группой «${conflict.name}» (#${conflict.code}) — ${dayNames[entry.dayOfWeek ?? 1]} ${entry.startTime}–${entry.endTime}.`);
     });
     setErrors(errs);
     if (errs.length > 0) return;
@@ -91,6 +96,8 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
     const groupNum = store.getNextGroupNumber();
     const code = `26-${groupNum}`;
     const now = new Date();
+    const courseStart = new Date(`${startDate}T12:00:00`);
+    const courseEnd = occurrences.at(-1)?.date || courseStart;
     const groupId = `grp_${Date.now()}`;
 
     const schedule: Partial<NormalizedScheduleEntry>[] = scheduleEntries.map((s, i) => ({
@@ -124,8 +131,8 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       status: 'planned',
       price,
       maxStudents,
-      startDate: now,
-      endDate: undefined,
+      startDate: courseStart,
+      endDate: courseEnd,
       createdAt: now,
       updatedAt: now,
     };
@@ -137,6 +144,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       dayOfWeek: s.dayOfWeek ?? 1,
       startTime: s.startTime || '10:00',
       endTime: s.endTime || '11:30',
+      academicHours: s.academicHours || 2,
       classroom: s.classroom,
       zoomRoom: s.zoomRoom,
     }));
@@ -152,28 +160,26 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       teacherId: teacherId === '__unassigned__' ? null : teacherId,
       teacherName: teachers.find(t => t.id === teacherId)?.name || 'Преподаватель не назначен',
       textbook,
-      startDate: now,
-      endDate: new Date(now.getFullYear() + 1, 0, 1),
+      startDate: courseStart,
+      endDate: courseEnd,
       schedule: realSchedule,
       studentIds: [],
       maxStudents,
       status: 'planned',
     });
 
-    if (scheduleEntries.some(s => s.startTime && s.endTime)) {
-      const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((scheduleEntries[0].dayOfWeek ?? 1) - now.getDay() + 7) % 7);
-      startDate.setHours(8, 0, 0, 0);
-
-      schedule.forEach(s => {
-        const [sh, sm] = (s.startTime || '10:00').split(':').map(Number);
-        const [eh, em] = (s.endTime || '11:30').split(':').map(Number);
-        const start = new Date(startDate);
+    if (occurrences.length) {
+      occurrences.forEach((occurrence, index) => {
+        const s = occurrence.schedule;
+        const [sh, sm] = s.startTime.split(':').map(Number);
+        const [eh, em] = s.endTime.split(':').map(Number);
+        const start = new Date(occurrence.date);
         start.setHours(sh, sm, 0, 0);
-        const end = new Date(startDate);
+        const end = new Date(occurrence.date);
         end.setHours(eh, em, 0, 0);
 
         store.addScheduleItem({
-          id: `real_si_${groupId}_${formatDate(start)}_${s.startTime?.replace(':', '') || ''}`,
+          id: `real_si_${groupId}_${formatDate(start)}_${index}`,
           teacherId: teacherId === '__unassigned__' ? '' : teacherId,
           groupId,
           lessonType: courseType === 'individual' ? 'individual' : 'lesson',
@@ -206,6 +212,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
     setTeacherId('');
     setPrice(8000);
     setHours(72);
+    setStartDate(format(new Date(), 'yyyy-MM-dd'));
     setTextbook('');
     setMaxStudents(8);
     setScheduleEntries([]);
@@ -214,12 +221,15 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
 
   return (
     <Dialog open={open} onOpenChange={(open) => { if (!open) resetForm(); onOpenChange(open); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="flex max-h-[94vh] max-w-6xl flex-col overflow-hidden p-0">
         <DialogHeader>
-          <DialogTitle className="text-lg">Создать группу</DialogTitle>
+          <DialogTitle className="px-6 pt-6 text-lg">Создание группы</DialogTitle>
         </DialogHeader>
-
-        <div className="space-y-4 py-2">
+        <div className="mx-6 grid w-[520px] grid-cols-3 rounded-md bg-muted p-1 text-center text-sm text-muted-foreground">
+          <span className="rounded bg-background py-1.5 font-medium text-foreground shadow">Данные группы</span><span className="py-1.5">Дни занятий</span><span className="py-1.5">Занятия</span>
+        </div>
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] border-t">
+        <div className="space-y-4 overflow-y-auto p-6">
           {errors.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded p-2 text-xs text-red-700 space-y-0.5">
               {errors.map((e, i) => <p key={i}>{e}</p>)}
@@ -227,6 +237,10 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
           )}
 
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Дата начала *</Label>
+              <Input className="h-8 text-xs" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            </div>
             <div className="space-y-1">
               <Label className="text-xs">Название группы *</Label>
               <Input className="text-xs h-8" value={name} onChange={e => setName(e.target.value)} placeholder="Deutsch A1.1" />
@@ -309,8 +323,15 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
                   className="text-xs h-7 w-[80px]"
                   type="time"
                   value={entry.startTime || '10:00'}
-                  onChange={e => updateScheduleEntry(i, 'startTime', e.target.value)}
+                  onChange={e => {
+                    updateScheduleEntry(i, 'startTime', e.target.value);
+                    updateScheduleEntry(i, 'endTime', endTimeForAcademicHours(e.target.value, entry.academicHours || 2));
+                  }}
                 />
+                <Select value={String(entry.academicHours || 2)} onValueChange={v => {
+                  updateScheduleEntry(i, 'academicHours', Number(v));
+                  updateScheduleEntry(i, 'endTime', endTimeForAcademicHours(entry.startTime || '10:00', Number(v)));
+                }}><SelectTrigger className="h-7 w-[92px] text-xs"><SelectValue /></SelectTrigger><SelectContent>{[2,3,4].map(v => <SelectItem key={v} value={String(v)}>{v} ак. ч.</SelectItem>)}</SelectContent></Select>
                 <Select value={entry.classroom ? 'classroom' : 'zoom'} onValueChange={v => {
                   updateScheduleEntry(i, 'classroom', v === 'classroom' ? classrooms[0] : undefined);
                   updateScheduleEntry(i, 'zoomRoom', v === 'zoom' ? zoomRooms[0] : undefined);
@@ -333,7 +354,10 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
             ))}
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+        </div>
+        <CreatePreview name={name} startDate={startDate} occurrences={occurrences} hasSchedule={scheduleEntries.length > 0} />
+        </div>
+          <div className="flex justify-end gap-2 border-t px-6 py-3">
             <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => onOpenChange(false)}>
               Отмена
             </Button>
@@ -341,10 +365,18 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
               Создать группу
             </Button>
           </div>
-        </div>
       </DialogContent>
     </Dialog>
   );
+}
+
+function CreatePreview({ name, startDate, occurrences, hasSchedule }: { name: string; startDate: string; occurrences: ReturnType<typeof buildCourseOccurrences>; hasSchedule: boolean }) {
+  const start = new Date(`${startDate}T12:00:00`);
+  const first = new Date(start.getFullYear(), start.getMonth(), 1, 12);
+  first.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+  const keys = new Set(occurrences.map(item => format(item.date, 'yyyy-MM-dd')));
+  const middle = occurrences.length ? format(occurrences[Math.floor((occurrences.length - 1) / 2)].date, 'yyyy-MM-dd') : '';
+  return <aside className="bg-muted/20 p-5" aria-live="polite"><div className="grid grid-cols-7 gap-1 text-center text-[10px] text-muted-foreground">{['ПН','ВТ','СР','ЧТ','ПТ','СБ','ВС'].map(day => <b key={day}>{day}</b>)}{Array.from({ length: 42 }, (_, index) => { const date = new Date(first); date.setDate(first.getDate() + index); const key = format(date, 'yyyy-MM-dd'); return <span key={key} className={cn('rounded py-2', date.getMonth() !== start.getMonth() && 'opacity-35', keys.has(key) && 'bg-teal-500 text-white', key === middle && 'bg-orange-400 font-bold text-white ring-2 ring-orange-200')}>{date.getDate()}</span>; })}</div><div className="mt-5 space-y-2 text-sm"><p className="font-semibold">💡 {name || 'Новая группа'}</p><p className="text-muted-foreground">Дата начала: <strong className="text-foreground">{format(start, 'dd.MM.yyyy')}</strong></p><p className="text-muted-foreground">Дата окончания: <strong className="text-foreground">{occurrences.length ? format(occurrences.at(-1)!.date, 'dd.MM.yyyy') : '—'}</strong></p><p className="text-muted-foreground">Количество занятий: <strong className="text-foreground">{occurrences.length || '—'}</strong></p>{!hasSchedule && <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">Выберите дни, время и ак. часы занятия — без них группу создать нельзя.</p>}</div></aside>;
 }
 
 function formatDate(date: Date): string {

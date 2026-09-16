@@ -58,7 +58,11 @@ const statusConfig: Record<Application['status'], { label: string; color: string
 export default function Applications() {
   const [applications, setApplications] = useState<Application[]>(() => {
     const fromStore = getAllApplications();
-    if (fromStore.length > 0) return fromStore;
+    let created: Application[] = [];
+    try {
+      created = JSON.parse(localStorage.getItem('dk-created-applications-v1') || '[]').map((item: Application & { createdAt: string; updatedAt: string }) => ({ ...item, createdAt: new Date(item.createdAt), updatedAt: new Date(item.updatedAt), history: item.history || [] }));
+    } catch { /* ignore broken local application cache */ }
+    if (fromStore.length > 0 || created.length > 0) return [...created, ...fromStore];
     // Fallback: generate mock data if store is empty
     const apps: Application[] = [];
     const sources: Application['source'][] = ['vk', 'whatsapp', 'telegram', 'instagram', 'website', 'mango_office'];
@@ -311,9 +315,9 @@ export default function Applications() {
       {/* Диалог деталей заявки */}
       {selectedApp && (
         <Dialog open={!!selectedApp} onOpenChange={() => setSelectedApp(null)}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="flex max-h-[92vh] max-w-5xl flex-col overflow-hidden p-0">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-3">
+              <DialogTitle className="flex items-center justify-center gap-3 px-8 pt-7 text-2xl">
                 Заявка #{selectedApp.id.split('-')[1]}
                 <Badge variant="outline" className={statusConfig[selectedApp.status].color}>
                   <span className={`h-1.5 w-1.5 rounded-full ${statusConfig[selectedApp.status].dotColor} mr-1.5`} />
@@ -322,9 +326,10 @@ export default function Applications() {
               </DialogTitle>
             </DialogHeader>
 
-            <div className="space-y-4">
+            <div className="mx-8 grid max-w-2xl grid-cols-3 rounded-md bg-muted p-1 text-sm"><span className="rounded bg-background py-2 text-center shadow">Основная информация</span><span className="py-2 text-center text-muted-foreground">Языки</span><span className="py-2 text-center text-muted-foreground">Дополнительная информация</span></div>
+            <ScrollArea className="min-h-0 flex-1 border-t"><div className="space-y-4 p-8">
               {/* Информация о клиенте */}
-              <div className="bg-muted rounded-lg p-4 space-y-3">
+              <div className="rounded-lg border bg-background p-6 space-y-4">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-12 w-12">
                     <AvatarFallback className="bg-gradient-to-br from-slate-600 to-slate-700 text-white">
@@ -425,7 +430,7 @@ export default function Applications() {
                 <Textarea placeholder="Добавить комментарий..." className="flex-1 min-h-[60px]" />
                 <Button className="self-end">Отправить</Button>
               </div>
-            </div>
+            </div></ScrollArea>
           </DialogContent>
         </Dialog>
       )}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -201,6 +201,11 @@ export default function TeacherSchedule() {
   const [cfFormat, setCfFormat] = useState('offline');
   const [cfRoom, setCfRoom] = useState('auto');
   const [cfStudent, setCfStudent] = useState('');
+  const [cfStudentQuery, setCfStudentQuery] = useState('');
+  const [studentCreateOpen, setStudentCreateOpen] = useState(false);
+  const [pendingApplicants, setPendingApplicants] = useState<{ id: string; name: string; phone: string; email: string }[]>(() => {
+    try { return JSON.parse(localStorage.getItem('dk-created-applications-v1') || '[]').map((item: { id: string; name: string; phone?: string; email?: string }) => ({ id: `application:${item.id}`, name: item.name, phone: item.phone || '', email: item.email || '' })); } catch { return []; }
+  });
   const [cfRepeat, setCfRepeat] = useState('none');
   const [cfComment, setCfComment] = useState('');
   const [cfPaymentType, setCfPaymentType] = useState<'single' | 'package'>('single');
@@ -208,6 +213,11 @@ export default function TeacherSchedule() {
   const [cfErrors, setCfErrors] = useState<string[]>([]);
   const cfTouched = useRef(false);
   const [availableRooms, setAvailableRooms] = useState<string[]>([]);
+  const studentOptions = useMemo(() => [
+    ...allStudents.filter(student => student.status === 'active').map(student => ({ id: student.id, name: student.name, phone: student.phone, email: student.email })),
+    ...pendingApplicants,
+  ], [pendingApplicants]);
+  const selectedStudent = studentOptions.find(student => student.id === cfStudent);
 
   // Drag & Drop state
   const [dragItem, setDragItem] = useState<TeacherScheduleItem | null>(null);
@@ -258,7 +268,7 @@ export default function TeacherSchedule() {
     if ((createType === 'individual' || createType === 'testing' || createType === 'trial') && !cfStudent) errs.push('Выберите ученика');
     if (createType === 'individual' && cfPaymentType === 'package' && (!cfPackageSize || Number(cfPackageSize) < 1)) errs.push('Укажите количество занятий в абонементе');
 
-    const teacher = allTeachers.find(t => t.user.id === cfTeacher);
+    const teacher = activeTeachers.find(t => t.user.id === cfTeacher);
     if (teacher && cfDate) {
       const d = new Date(cfDate);
       if (isTeacherOnVacation(teacher, d)) {
@@ -448,7 +458,7 @@ export default function TeacherSchedule() {
       const duration = Number(cfDuration);
       const endMinutes = startMinutes + duration;
       const endTime = formatTimeFromMinutes(endMinutes);
-      const student = allStudents.find(s => s.id === cfStudent);
+      const student = selectedStudent;
 
       const baseLesson: TeacherScheduleItem = {
         id: generateId(),
@@ -485,7 +495,7 @@ export default function TeacherSchedule() {
       const duration = Number(cfDuration);
       const endMinutes = startMinutes + duration;
       const endTime = formatTimeFromMinutes(endMinutes);
-      const student = allStudents.find(s => s.id === cfStudent);
+      const student = selectedStudent;
 
       const newTesting: TeacherScheduleItem = {
         id: generateId(),
@@ -1278,12 +1288,12 @@ export default function TeacherSchedule() {
                     <Label className="text-[11px]">Преподаватель</Label>
                     <Select value={cfTeacher} onValueChange={(v) => {
                       setCfTeacher(v);
-                      const t = allTeachers.find(te => te.user.id === v);
+                      const t = activeTeachers.find(te => te.user.id === v);
                       if (t) setCfLanguage(t.languages[0]);
                     }}>
                       <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Выберите" /></SelectTrigger>
                       <SelectContent>
-                        {allTeachers
+                        {activeTeachers
                           .filter(t => t.languages.includes(cfLanguage))
                           .map(t => <SelectItem key={t.user.id} value={t.user.id}>{t.user.name}</SelectItem>)}
                       </SelectContent>
@@ -1317,12 +1327,7 @@ export default function TeacherSchedule() {
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <Label className="text-[11px]">Ученик</Label>
-                        <Select value={cfStudent} onValueChange={setCfStudent}>
-                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Выберите ученика" /></SelectTrigger>
-                          <SelectContent>
-                            {allStudents.filter(s => s.status === 'active').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <SmartStudentPicker options={studentOptions} value={cfStudent} query={cfStudentQuery} onQuery={setCfStudentQuery} onSelect={(id) => { setCfStudent(id); setCfStudentQuery(studentOptions.find(item => item.id === id)?.name || ''); }} onCreate={() => setStudentCreateOpen(true)} />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-[11px]">Повторение</Label>
@@ -1386,12 +1391,7 @@ export default function TeacherSchedule() {
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label className="text-[11px]">Ученик</Label>
-                      <Select value={cfStudent} onValueChange={setCfStudent}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Выберите ученика" /></SelectTrigger>
-                        <SelectContent>
-                          {allStudents.filter(s => s.status === 'active').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      <SmartStudentPicker options={studentOptions} value={cfStudent} query={cfStudentQuery} onQuery={setCfStudentQuery} onSelect={(id) => { setCfStudent(id); setCfStudentQuery(studentOptions.find(item => item.id === id)?.name || ''); }} onCreate={() => setStudentCreateOpen(true)} />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-[11px]">Язык</Label>
@@ -2253,6 +2253,21 @@ export default function TeacherSchedule() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <StudentCreateDialog
+        open={studentCreateOpen}
+        initialName={cfStudentQuery}
+        onOpenChange={setStudentCreateOpen}
+        onCreated={(application) => {
+          const stored = (() => { try { return JSON.parse(localStorage.getItem('dk-created-applications-v1') || '[]'); } catch { return []; } })();
+          localStorage.setItem('dk-created-applications-v1', JSON.stringify([application, ...stored]));
+          const option = { id: `application:${application.id}`, name: application.name, phone: application.phone, email: application.email };
+          setPendingApplicants(current => [option, ...current]);
+          setCfStudent(option.id);
+          setCfStudentQuery(option.name);
+          setStudentCreateOpen(false);
+        }}
+      />
+
       {/* Create Group Dialog */}
       <CreateGroupDialog
         open={createGroupOpen}
@@ -2314,4 +2329,20 @@ export default function TeacherSchedule() {
       )}
     </div>
   );
+}
+
+function SmartStudentPicker({ options, value, query, onQuery, onSelect, onCreate }: { options: { id: string; name: string; phone: string; email: string }[]; value: string; query: string; onQuery: (value: string) => void; onSelect: (id: string) => void; onCreate: () => void }) {
+  const [open, setOpen] = useState(false);
+  const normalized = query.trim().toLowerCase();
+  const matches = options.filter(item => `${item.name} ${item.phone} ${item.email}`.toLowerCase().includes(normalized)).slice(0, 10);
+  return <div className="relative"><Input className="h-7 text-xs" value={query || options.find(item => item.id === value)?.name || ''} placeholder="Начните вводить имя или фамилию" onFocus={() => setOpen(true)} onChange={event => { onQuery(event.target.value); setOpen(true); if (value) onSelect(''); }} />{open && <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-lg">{matches.map(item => <button type="button" key={item.id} className="block w-full rounded px-2 py-2 text-left text-xs hover:bg-muted" onMouseDown={event => event.preventDefault()} onClick={() => { onSelect(item.id); setOpen(false); }}><span className="block font-medium">{item.name}</span>{item.phone && <span className="text-muted-foreground">{item.phone}</span>}</button>)}{normalized && !matches.some(item => item.name.toLowerCase() === normalized) && <button type="button" className="mt-1 block w-full rounded bg-teal-50 px-2 py-2 text-left text-xs font-medium text-teal-800 hover:bg-teal-100" onMouseDown={event => event.preventDefault()} onClick={() => { setOpen(false); onCreate(); }}>+ Создать «{query.trim()}»</button>}{!matches.length && !normalized && <p className="p-2 text-xs text-muted-foreground">Введите первые буквы имени или фамилии</p>}</div>}</div>;
+}
+
+function StudentCreateDialog({ open, initialName, onOpenChange, onCreated }: { open: boolean; initialName: string; onOpenChange: (open: boolean) => void; onCreated: (application: { id: string; name: string; phone: string; email: string; source: string; status: string; comment: string; isNewClient: boolean; createdAt: string; updatedAt: string; history: unknown[] }) => void }) {
+  const parts = initialName.trim().split(/\s+/);
+  const [form, setForm] = useState({ lastName: parts[0] || '', firstName: parts.slice(1).join(' '), middleName: '', phone: '', email: '', language: 'German', level: 'A1', comment: '', source: 'website' });
+  useEffect(() => { if (open) { const next = initialName.trim().split(/\s+/); setForm(current => ({ ...current, lastName: next[0] || '', firstName: next.slice(1).join(' ') })); } }, [open, initialName]);
+  const save = () => { if (!form.lastName.trim() || !form.firstName.trim()) return; const now = new Date().toISOString(); onCreated({ id: `schedule-app-${Date.now()}`, name: `${form.lastName.trim()} ${form.firstName.trim()}${form.middleName.trim() ? ` ${form.middleName.trim()}` : ''}`, phone: form.phone, email: form.email, source: form.source, status: 'new', comment: `${form.comment}${form.comment ? '\n' : ''}Интересует ${form.language === 'German' ? 'немецкий' : 'английский'} язык, уровень ${form.level}`, isNewClient: true, createdAt: now, updatedAt: now, history: [] }); };
+  const field = (label: string, key: keyof typeof form, type = 'text') => <div className="grid grid-cols-[150px_1fr] items-center gap-4 border-b py-3"><Label className="text-xs text-muted-foreground">{label}</Label><Input type={type} value={form[key]} onChange={event => setForm(current => ({ ...current, [key]: event.target.value }))} /></div>;
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="flex max-h-[92vh] max-w-5xl flex-col p-0"><DialogHeader className="border-b px-7 pt-7"><DialogTitle className="text-center text-2xl">Добавление студента</DialogTitle><DialogDescription className="text-center">Контакт будет создан в системе и попадёт в «Заявки», но пока не будет зачислен в группу.</DialogDescription><div className="grid max-w-2xl grid-cols-3 rounded-md bg-muted p-1 text-sm"><span className="rounded bg-background py-2 text-center shadow">Основная информация</span><span className="py-2 text-center text-muted-foreground">Языки</span><span className="py-2 text-center text-muted-foreground">Дополнительная информация</span></div></DialogHeader><div className="overflow-y-auto px-8 py-2">{field('Фамилия *','lastName')}{field('Имя *','firstName')}{field('Отчество','middleName')}{field('Номер телефона','phone','tel')}{field('E-mail','email','email')}<div className="grid grid-cols-[150px_1fr] items-center gap-4 border-b py-3"><Label className="text-xs text-muted-foreground">Язык и уровень</Label><div className="grid grid-cols-2 gap-2"><Select value={form.language} onValueChange={value => setForm(current => ({ ...current, language: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="German">Немецкий</SelectItem><SelectItem value="English">Английский</SelectItem></SelectContent></Select><Select value={form.level} onValueChange={value => setForm(current => ({ ...current, level: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['A1','A2','B1','B2','C1','C2'].map(level => <SelectItem key={level} value={level}>{level}</SelectItem>)}</SelectContent></Select></div></div><div className="grid grid-cols-[150px_1fr] items-start gap-4 py-3"><Label className="pt-2 text-xs text-muted-foreground">Комментарий</Label><Textarea value={form.comment} onChange={event => setForm(current => ({ ...current, comment: event.target.value }))} /></div></div><DialogFooter className="border-t px-7 py-4"><Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button><Button onClick={save}>Создать контакт и заявку</Button></DialogFooter></DialogContent></Dialog>;
 }
