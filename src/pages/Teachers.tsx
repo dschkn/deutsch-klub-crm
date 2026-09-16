@@ -12,8 +12,10 @@ import { Textarea } from '../components/ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/alert-dialog';
 import { getAllGroups } from '../data/selectors';
 import { getTeacherDirectory, saveTeacherDirectory, subscribeToTeacherDirectory, type TeacherDirectoryEntry, type TeacherLanguage } from '../data/teacherDirectory';
+import { realGroups } from '../data/realGroups';
+import { DataStore } from '../data/store';
 
-const emptyTeacher = (): TeacherDirectoryEntry => ({ id: '', name: '', email: '', phone: '', languages: ['German'], employmentType: 'hourly', format: 'both', active: true, note: '', createdAt: new Date().toISOString() });
+const emptyTeacher = (): TeacherDirectoryEntry => ({ id: '', name: '', firstName: '', lastName: '', patronymic: '', email: '', phone: '', languages: ['German'], employmentType: 'hourly', format: 'both', active: true, note: '', createdAt: new Date().toISOString() });
 const languageLabel = { German: 'Немецкий', English: 'Английский' };
 const employmentLabel = { full_time: 'Штат', part_time: 'Частичная занятость', hourly: 'Почасовая оплата' };
 const formatLabel = { offline: 'Офлайн', online: 'Онлайн', both: 'Онлайн и офлайн' };
@@ -33,12 +35,15 @@ export default function Teachers() {
   const activeGroupCount = (teacher: TeacherDirectoryEntry) => groups.filter(g => g.teacher.id === teacher.id && g.status === 'active').length;
 
   const saveDraft = () => {
-    const name = draft.name.trim();
+    const firstName = (draft.firstName || '').trim();
+    const lastName = (draft.lastName || '').trim();
+    const patronymic = (draft.patronymic || '').trim();
+    const name = [firstName, lastName, patronymic].filter(Boolean).join(' ');
     const email = draft.email.trim();
-    if (!name) return toast.error('Укажите имя преподавателя');
+    if (!firstName || !lastName) return toast.error('Укажите имя и фамилию преподавателя');
     if (email && !/^\S+@\S+\.\S+$/.test(email)) return toast.error('Проверьте e-mail преподавателя');
     if (teachers.some(t => t.id !== draft.id && t.name.toLowerCase() === name.toLowerCase())) return toast.error('Преподаватель с таким именем уже есть');
-    const entry = { ...draft, id: draft.id || `teacher-${Date.now()}`, name, email };
+    const entry = { ...draft, id: draft.id || `teacher-${Date.now()}`, name, firstName, lastName, patronymic, email };
     persist(draft.id ? teachers.map(t => t.id === draft.id ? entry : t) : [entry, ...teachers]);
     setDialogOpen(false);
     toast.success(draft.id ? 'Данные преподавателя обновлены' : 'Преподаватель добавлен');
@@ -50,6 +55,25 @@ export default function Teachers() {
   };
   const dismiss = () => {
     if (!dismissTarget) return;
+    const unassigned = { teacherId: null, teacherName: 'Преподаватель не назначен' };
+    const affectedGroupIds = new Set(realGroups.filter(group => group.teacherId === dismissTarget.id).map(group => group.id));
+    realGroups.forEach(group => {
+      if (group.teacherId === dismissTarget.id) Object.assign(group, unassigned);
+    });
+    try {
+      const key = 'dk-groups-workspace-v2';
+      const workspace = JSON.parse(localStorage.getItem(key) || '{}');
+      const drafts = workspace.groupDrafts || {};
+      realGroups.forEach(group => {
+        const draft = drafts[group.id];
+        if (affectedGroupIds.has(group.id) || draft?.teacherId === dismissTarget.id) drafts[group.id] = { ...draft, ...unassigned };
+      });
+      workspace.customGroups = (workspace.customGroups || []).map((group: { teacherId?: string }) => group.teacherId === dismissTarget.id ? { ...group, ...unassigned } : group);
+      workspace.groupDrafts = drafts;
+      localStorage.setItem(key, JSON.stringify(workspace));
+    } catch { /* leave in-memory groups detached */ }
+    const store = DataStore.getInstance();
+    store.getAllGroups().filter(group => group.teacherId === dismissTarget.id).forEach(group => store.updateGroup(group.id, { teacherId: '', teacherName: 'Преподаватель не назначен' }));
     persist(teachers.map(t => t.id === dismissTarget.id ? { ...t, active: false } : t));
     setDismissTarget(null);
     toast.success('Преподаватель убран из активного списка');
@@ -94,7 +118,9 @@ export default function Teachers() {
     </div>
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>{draft.id ? 'Редактирование учителя' : 'Добавление учителя'}</DialogTitle><DialogDescription>Данные из этого профиля используются в группах и расписании.</DialogDescription></DialogHeader><div className="grid gap-4 py-2 sm:grid-cols-2">
       <div className="flex items-center gap-4 sm:col-span-2"><Avatar className="h-16 w-16"><AvatarImage src={draft.avatar} alt={draft.name} /><AvatarFallback>{draft.name ? draft.name.split(' ').map(part => part[0]).slice(0, 2).join('') : 'ФО'}</AvatarFallback></Avatar><div className="flex flex-wrap gap-2"><Label htmlFor="teacher-photo" className="inline-flex h-9 cursor-pointer items-center border px-4 text-sm font-medium hover:bg-muted">{draft.avatar ? 'Заменить фото' : 'Добавить фото'}</Label><Input id="teacher-photo" className="hidden" type="file" accept="image/*" onChange={event => uploadAvatar(event.target.files?.[0])} />{draft.avatar && <Button type="button" variant="ghost" onClick={() => setDraft({...draft, avatar: undefined})}>Удалить фото</Button>}<p className="w-full text-xs text-muted-foreground">Необязательно · JPG, PNG или WebP · до 2 МБ</p></div></div>
-      <div className="space-y-1.5 sm:col-span-2"><Label>Имя и фамилия *</Label><Input autoFocus value={draft.name} onChange={e => setDraft({...draft, name:e.target.value})} placeholder="Анна Иванова" /></div>
+      <div className="space-y-1.5"><Label>Имя *</Label><Input autoFocus value={draft.firstName || ''} onChange={e => setDraft({...draft, firstName:e.target.value})} placeholder="Анна" /></div>
+      <div className="space-y-1.5"><Label>Фамилия *</Label><Input value={draft.lastName || ''} onChange={e => setDraft({...draft, lastName:e.target.value})} placeholder="Иванова" /></div>
+      <div className="space-y-1.5 sm:col-span-2"><Label>Отчество</Label><Input value={draft.patronymic || ''} onChange={e => setDraft({...draft, patronymic:e.target.value})} placeholder="Необязательно" /></div>
       <div className="space-y-1.5"><Label>E-mail</Label><Input type="email" value={draft.email} onChange={e => setDraft({...draft, email:e.target.value})} /></div><div className="space-y-1.5"><Label>Телефон</Label><Input value={draft.phone} onChange={e => setDraft({...draft, phone:e.target.value})} /></div>
       <div className="space-y-1.5"><Label>Занятость</Label><Select value={draft.employmentType} onValueChange={v => setDraft({...draft, employmentType:v as TeacherDirectoryEntry['employmentType']})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(employmentLabel).map(([v,l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent></Select></div>
       <div className="space-y-1.5"><Label>Формат работы</Label><Select value={draft.format} onValueChange={v => setDraft({...draft, format:v as TeacherDirectoryEntry['format']})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(formatLabel).map(([v,l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent></Select></div>

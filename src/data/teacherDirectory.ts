@@ -5,6 +5,9 @@ export type TeacherLanguage = 'German' | 'English';
 export interface TeacherDirectoryEntry {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
+  patronymic?: string;
   email: string;
   phone: string;
   avatar?: string;
@@ -22,6 +25,9 @@ export const TEACHER_DIRECTORY_EVENT = 'dk-teacher-directory-change';
 const seedTeachers = (): TeacherDirectoryEntry[] => demoTeacherOptions.map((teacher, index) => ({
   id: teacher.id,
   name: teacher.name,
+  firstName: teacher.name.split(/\s+/)[1] || teacher.name.split(/\s+/)[0] || '',
+  lastName: teacher.name.split(/\s+/)[0] || '',
+  patronymic: teacher.name.split(/\s+/).slice(2).join(' '),
   email: demoTeacherUserMap[teacher.id]?.email || '',
   phone: demoTeacherUserMap[teacher.id]?.phone || '',
   avatar: demoTeacherUserMap[teacher.id]?.avatar,
@@ -36,7 +42,15 @@ const seedTeachers = (): TeacherDirectoryEntry[] => demoTeacherOptions.map((teac
 export function getTeacherDirectory(): TeacherDirectoryEntry[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved) as TeacherDirectoryEntry[];
+    if (saved) return (JSON.parse(saved) as TeacherDirectoryEntry[]).map(teacher => {
+      const parts = teacher.name.trim().split(/\s+/);
+      return {
+        ...teacher,
+        firstName: teacher.firstName || parts[1] || parts[0] || '',
+        lastName: teacher.lastName || parts[0] || '',
+        patronymic: teacher.patronymic ?? parts.slice(2).join(' '),
+      };
+    });
   } catch { /* use demo data */ }
   return seedTeachers();
 }

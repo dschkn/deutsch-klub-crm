@@ -60,14 +60,13 @@ import {
 } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
 import {
-  demoAdministrators,
   demoAdminTasks,
   type DemoBoardTask,
   type DemoTaskPriority,
 } from "../data/demoAdministrators";
 import { importedStudents } from "../data/importedStudents";
 import { realGroups, type RealGroup } from "../data/realGroups";
-import { getTeacherDirectory } from "../data/teacherDirectory";
+import { getTeacherDirectory, subscribeToTeacherDirectory } from "../data/teacherDirectory";
 import { getAdminDirectory } from "../data/adminDirectory";
 import CreateGroupDialog from "../components/group/CreateGroupDialog";
 import { cn } from "../lib/utils";
@@ -267,7 +266,10 @@ export default function Groups() {
     dueDate: format(new Date(), "yyyy-MM-dd"),
     priority: "medium" as DemoTaskPriority,
     assigneeId: "unassigned",
+    relatedStudentIds: [] as string[],
   });
+  const [taskStudentQuery, setTaskStudentQuery] = useState("");
+  const [teacherDirectory, setTeacherDirectory] = useState(getTeacherDirectory);
   const [studentOpen, setStudentOpen] = useState(false);
   const [studentProfileId, setStudentProfileId] = useState<string | null>(null);
   const [startGroupOpen, setStartGroupOpen] = useState(false);
@@ -325,6 +327,8 @@ export default function Groups() {
     localStorage.setItem(GROUPS_KEY, JSON.stringify(workspace));
   }, [workspace]);
 
+  useEffect(() => subscribeToTeacherDirectory(() => setTeacherDirectory(getTeacherDirectory())), []);
+
   useEffect(() => {
     setCommentDraft("");
     setEditingCommentId(null);
@@ -337,16 +341,23 @@ export default function Groups() {
     () => new Map(students.map((student) => [student.id, student])),
     [students],
   );
+  const activeTeachers = useMemo(() => teacherDirectory.filter((teacher) => teacher.active), [teacherDirectory]);
   const groups = useMemo(
-    () =>
-      [...realGroups, ...(workspace.customGroups || [])].map((group) => ({
-        ...group,
-        ...workspace.groupDrafts[group.id],
-        studentIds: workspace.rosters[group.id] ?? group.studentIds,
-      })),
-    [workspace],
+    () => {
+      const activeTeacherIds = new Set(activeTeachers.map(teacher => teacher.id));
+      return [...realGroups, ...(workspace.customGroups || [])].map((group) => {
+        const merged = { ...group, ...workspace.groupDrafts[group.id] };
+        const teacherIsCurrent = Boolean(merged.teacherId && activeTeacherIds.has(merged.teacherId));
+        return {
+          ...merged,
+          teacherId: teacherIsCurrent ? merged.teacherId : null,
+          teacherName: teacherIsCurrent ? merged.teacherName : "Преподаватель не назначен",
+          studentIds: workspace.rosters[group.id] ?? group.studentIds,
+        };
+      });
+    },
+    [workspace, activeTeachers],
   );
-  const activeTeachers = getTeacherDirectory().filter((teacher) => teacher.active);
   const selected = groups.find((group) => group.id === selectedId) || null;
   const visibleGroups = groups.filter(
     (group) =>
@@ -679,6 +690,25 @@ export default function Groups() {
   };
   const saveGroup = () => {
     if (!selected) return;
+    const conflicts: string[] = [];
+    (editDraft.schedule || []).forEach((entry) => {
+      const resource = entry.classroom || entry.zoomRoom;
+      const start = entry.startTime.replace(':', '');
+      const end = entry.endTime.replace(':', '');
+      groups.filter(group => group.id !== selected.id).forEach(group => {
+        group.schedule.forEach(other => {
+          if (other.dayOfWeek !== entry.dayOfWeek) return;
+          const overlap = start < other.endTime.replace(':', '') && end > other.startTime.replace(':', '');
+          if (!overlap) return;
+          if (editDraft.teacherId && group.teacherId === editDraft.teacherId) conflicts.push(`Преподаватель уже занят: ${dayNames[entry.dayOfWeek]} ${entry.startTime}–${entry.endTime}`);
+          if (resource && resource !== 'Свой Zoom' && (other.classroom === resource || other.zoomRoom === resource)) conflicts.push(`${resource} уже занят: ${dayNames[entry.dayOfWeek]} ${entry.startTime}–${entry.endTime}`);
+        });
+      });
+    });
+    if (conflicts.length) {
+      Array.from(new Set(conflicts)).forEach(message => toast.error('Конфликт расписания', { description: message }));
+      return;
+    }
     setWorkspace((current) => ({
       ...current,
       groupDrafts: { ...current.groupDrafts, [selected.id]: editDraft },
@@ -697,7 +727,9 @@ export default function Groups() {
       dueDate: format(new Date(), "yyyy-MM-dd"),
       priority: "medium",
       assigneeId: "unassigned",
+      relatedStudentIds: student ? [student.id] : [],
     });
+    setTaskStudentQuery("");
     setTaskOpen(true);
   };
   const saveTask = () => {
@@ -715,6 +747,7 @@ export default function Groups() {
       tags: selected ? [`Группа #${selected.code}`] : [],
       subtasks: [],
       comments: [],
+      relatedStudentIds: taskDraft.relatedStudentIds,
       createdAt: new Date().toISOString(),
     };
     localStorage.setItem(TASKS_KEY, JSON.stringify([task, ...tasks]));
@@ -1550,12 +1583,13 @@ export default function Groups() {
                       />
                     </ReferenceField>
                     <ReferenceField label="Учитель">
-                      <Select value={editDraft.teacherId || ""} onValueChange={(teacherId) => {
+                      <Select value={editDraft.teacherId || "__unassigned__"} onValueChange={(value) => {
+                        const teacherId = value === "__unassigned__" ? null : value;
                         const teacher = activeTeachers.find((item) => item.id === teacherId);
-                        setEditDraft((current) => ({ ...current, teacherId, teacherName: teacher?.name || "" }));
+                        setEditDraft((current) => ({ ...current, teacherId, teacherName: teacher?.name || "Преподаватель не назначен" }));
                       }}>
                         <SelectTrigger><SelectValue placeholder="Выберите учителя" /></SelectTrigger>
-                        <SelectContent>{activeTeachers.map((teacher) => <SelectItem key={teacher.id} value={teacher.id}>{teacher.name}</SelectItem>)}</SelectContent>
+                        <SelectContent><SelectItem value="__unassigned__">Преподаватель не назначен</SelectItem>{activeTeachers.map((teacher) => <SelectItem key={teacher.id} value={teacher.id}>{teacher.name}</SelectItem>)}</SelectContent>
                       </Select>
                     </ReferenceField>
                     <ReferenceField label="Учебник">
@@ -1697,12 +1731,19 @@ export default function Groups() {
                                   }))
                                 }
                               />
-                              <Input
-                                value={
-                                  item.classroom || item.zoomRoom || "Аудитория"
-                                }
-                                readOnly
-                              />
+                              <Select value={item.classroom || item.zoomRoom || "Аудитория 1"} onValueChange={(resource) => setEditDraft((current) => ({
+                                ...current,
+                                schedule: (current.schedule || []).map(entry => entry.dayOfWeek === day ? {
+                                  ...entry,
+                                  classroom: resource.startsWith('Аудитория') ? resource : undefined,
+                                  zoomRoom: resource.startsWith('Zoom') || resource === 'Свой Zoom' ? resource : undefined,
+                                } : entry),
+                              }))}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {["Аудитория 1", "Аудитория 2", "Аудитория 3", "Аудитория 4", "Zoom 1", "Zoom 2", "Zoom 3", "Свой Zoom"].map(resource => <SelectItem key={resource} value={resource}>{resource}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
                             </div>
                           )}
                         </div>
@@ -1825,7 +1866,7 @@ export default function Groups() {
                 </SelectContent>
               </Select>
             </ReferenceField>
-            <ReferenceField label="Ответственные">
+            <ReferenceField label="Ответственный">
               <Select
                 value={taskDraft.assigneeId}
                 onValueChange={(value) =>
@@ -1846,7 +1887,15 @@ export default function Groups() {
               </Select>
             </ReferenceField>
             <ReferenceField label="Связанные студенты">
-              <Input placeholder="Поиск студента по имени и фамилии" />
+              <Input value={taskStudentQuery} onChange={(event) => setTaskStudentQuery(event.target.value)} placeholder="Поиск по фамилии или имени" />
+              {taskStudentQuery.trim() && <div className="mt-1 max-h-40 overflow-y-auto border bg-white p-1 shadow-sm">
+                {students.filter(student => {
+                  const query = taskStudentQuery.trim().toLocaleLowerCase('ru');
+                  const name = student.name.toLocaleLowerCase('ru');
+                  return name.includes(query) || name.split(/\s+/).some(part => part.startsWith(query));
+                }).slice(0, 20).map(student => <button key={student.id} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { setTaskDraft(current => ({ ...current, relatedStudentIds: current.relatedStudentIds.includes(student.id) ? current.relatedStudentIds : [...current.relatedStudentIds, student.id] })); setTaskStudentQuery(""); }}><Checkbox checked={taskDraft.relatedStudentIds.includes(student.id)} />{student.name}</button>)}
+              </div>}
+              <div className="mt-2 flex flex-wrap gap-1">{taskDraft.relatedStudentIds.map(id => { const student = studentMap.get(id); return student ? <Badge key={id} variant="secondary" className="gap-1 rounded-none">{student.name}<button type="button" onClick={() => setTaskDraft(current => ({ ...current, relatedStudentIds: current.relatedStudentIds.filter(studentId => studentId !== id) }))}>×</button></Badge> : null; })}</div>
             </ReferenceField>
             <ReferenceField label="Связанные группы">
               <Input

@@ -708,7 +708,7 @@ export default function Tasks() {
             {trash.map((task) => (
               <div key={task.id} className="flex items-center gap-3 rounded-lg border p-3">
                 <Trash2 className="h-4 w-4 flex-none text-muted-foreground" />
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{task.title}</p><p className="text-xs text-muted-foreground">{task.assigneeId ? administrators.find((admin) => admin.id === task.assigneeId)?.name : 'Без ответственного'}</p></div>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{task.title}</p><p className="text-xs text-muted-foreground">{task.assigneeId ? administrators.find((admin) => admin.id === task.assigneeId)?.name : 'Неразобранное'}</p></div>
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={() => restoreTask(task)}><RotateCcw className="h-3.5 w-3.5" />Восстановить</Button>
                 <Button variant="ghost" size="icon" aria-label="Удалить окончательно" onClick={() => setTrash((current) => current.filter((item) => item.id !== task.id))}><Trash2 className="h-4 w-4 text-red-500" /></Button>
               </div>

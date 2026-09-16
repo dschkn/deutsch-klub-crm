@@ -7,7 +7,7 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '../components/ui/dialog';
 import {
-  ChevronLeft, ChevronRight, StickyNote, Plus, Trash2, X,
+  ChevronLeft, ChevronRight, Plus, Trash2, X,
   Edit, Move, MessageSquare, RotateCcw, CheckCircle,
 } from 'lucide-react';
 
@@ -24,6 +24,7 @@ import { TeacherScheduleItem, Teacher, Group, Student, ScheduleStatus, CellComme
 import { NormalizedTeacherScheduleItem } from '../types/normalized';
 import ScheduleLessonDialog from '../components/schedule/ScheduleLessonDialog';
 import CreateGroupDialog from '../components/group/CreateGroupDialog';
+import { getTeacherDirectory, subscribeToTeacherDirectory } from '../data/teacherDirectory';
 import DropConfirmDialog from '../components/schedule/DropConfirmDialog';
 import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parse, getDay, differenceInMinutes } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -100,6 +101,9 @@ function formatRoomKey(key: string | undefined): string {
 }
 
 export default function TeacherSchedule() {
+  const [teacherDirectory, setTeacherDirectory] = useState(getTeacherDirectory);
+
+  useEffect(() => subscribeToTeacherDirectory(() => setTeacherDirectory(getTeacherDirectory())), []);
   const startedGroups: Record<string, { firstLessonDate: string; format: 'online' | 'offline' }> = (() => {
     try {
       return JSON.parse(localStorage.getItem('dk-started-groups-v1') || '{}');
@@ -1069,9 +1073,25 @@ export default function TeacherSchedule() {
   };
 
   // ========== Пересчет ширины колонок под FullHD ==========
+  const activeDirectory = teacherDirectory.filter(teacher => teacher.active);
+  const activeTeachers = activeDirectory.map(directoryTeacher => {
+    const existing = allTeachers.find(teacher => teacher.user.id === directoryTeacher.id);
+    if (existing) return { ...existing, languages: directoryTeacher.languages, user: { ...existing.user, name: directoryTeacher.name } };
+    return {
+      user: { id: directoryTeacher.id, name: directoryTeacher.name, email: directoryTeacher.email, phone: directoryTeacher.phone, role: 'teacher' as const },
+      languages: directoryTeacher.languages,
+      specializations: [], hourlyRate: 0, groups: [], schedule: [], vacations: [],
+      statistics: { totalStudents: 0, activeGroups: 0, completedLessons: 0, averageRating: 0, totalHours: 0 },
+      isOnlineOnly: directoryTeacher.format === 'online',
+    };
+  }).sort((a, b) => {
+    const aGerman = a.languages.includes('German') ? 0 : 1;
+    const bGerman = b.languages.includes('German') ? 0 : 1;
+    return aGerman - bGerman || a.user.name.localeCompare(b.user.name, 'ru');
+  });
   const teachersToShow = selectedTeacher === 'all'
-    ? allTeachers
-    : allTeachers.filter(t => t.user.id === selectedTeacher);
+    ? activeTeachers
+    : activeTeachers.filter(t => t.user.id === selectedTeacher);
 
   const filteredTeachers = teachersToShow.filter(teacher => {
     if (filterLanguage !== 'all') {
@@ -1503,7 +1523,7 @@ export default function TeacherSchedule() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Все преподаватели</SelectItem>
-              {allTeachers.map(t => (
+              {activeTeachers.map(t => (
                 <SelectItem key={t.user.id} value={t.user.id}>{t.user.name}</SelectItem>
               ))}
             </SelectContent>
@@ -1526,13 +1546,14 @@ export default function TeacherSchedule() {
               >
                 Время
               </div>
-              {filteredTeachers.map(teacher => {
+              {filteredTeachers.map((teacher, teacherIndex) => {
                 const nameParts = teacher.user.name.split(' ');
                 const teacherColComments = teacherComments.filter(c => c.teacherId === teacher.user.id && c.text?.trim());
+                const startsEnglishSection = !teacher.languages.includes('German') && (teacherIndex === 0 || filteredTeachers[teacherIndex - 1].languages.includes('German'));
                 return (
                   <div
                     key={teacher.user.id}
-                    className="shrink-0 border-r border-border p-1 text-center bg-muted flex flex-col items-center justify-center relative"
+                    className={`shrink-0 border-r border-border p-1 text-center bg-muted flex flex-col items-center justify-center relative ${startsEnglishSection ? 'border-l-4 border-l-blue-600' : ''}`}
                     style={{ width: columnWidth, height: DAY_HEADER_HEIGHT * 1.6 }}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -1540,20 +1561,6 @@ export default function TeacherSchedule() {
                       setTeacherContextMenuPos({ x: e.clientX, y: e.clientY, teacherId: teacher.user.id });
                     }}
                   >
-                    <div className="flex items-center justify-center gap-1">
-                      {teacher.weeklyNote && (
-                        <TooltipProvider delayDuration={100}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <StickyNote className="h-2.5 w-2.5 text-amber-500 cursor-pointer shrink-0" />
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-[180px] bg-slate-800 text-white text-[10px]">
-                              <p>{teacher.weeklyNote}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
                     <div className="leading-tight text-center">
                       {nameParts.length > 1 ? (
                         <>
@@ -1648,7 +1655,7 @@ export default function TeacherSchedule() {
                       <span className={`text-[10px] font-bold uppercase tracking-tight ${
                         isToday ? 'text-blue-700' : isOffDay ? 'text-muted-foreground' : 'text-muted-foreground'
                       }`}>
-                        {dayNames[getMondayFirstDayIndex(day)]}
+                        {dayNames[getMondayFirstDayIndex(day)]} · {format(day, 'd.MM')}
                       </span>
                     </div>
                     {/* Time slots — hourly labels */}
@@ -1685,7 +1692,7 @@ export default function TeacherSchedule() {
                   )}
 
                   {/* Teacher columns */}
-                  {filteredTeachers.map(teacher => {
+                  {filteredTeachers.map((teacher, teacherIndex) => {
                     const dayItems = getAllScheduleItems(teacher, day);
                     const onVacation = isTeacherOnVacation(teacher, day);
                     const colComments = comments.filter(
@@ -1697,7 +1704,7 @@ export default function TeacherSchedule() {
                         key={teacher.user.id}
                         className={`shrink-0 border-r border-border relative ${
                           onVacation ? 'bg-teal-50/40' : isOffDay ? 'bg-muted/50' : ''
-                        } ${isToday ? 'bg-blue-50/20' : ''}`}
+                        } ${isToday ? 'bg-blue-50/20' : ''} ${!teacher.languages.includes('German') && (teacherIndex === 0 || filteredTeachers[teacherIndex - 1].languages.includes('German')) ? 'border-l-4 border-l-blue-600' : ''}`}
                         style={{ width: columnWidth }}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -1713,11 +1720,6 @@ export default function TeacherSchedule() {
                           }`}
                           style={{ height: DAY_HEADER_HEIGHT }}
                         >
-                          <div className="text-center">
-                            <p className={`text-[10px] font-bold leading-tight ${isToday ? 'text-blue-700' : isOffDay ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
-                              {format(day, 'd.MM')}
-                            </p>
-                          </div>
                           {holidayName && (
                             <span className="text-[7px] text-muted-foreground ml-1">{holidayName}</span>
                           )}

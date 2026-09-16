@@ -65,7 +65,6 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
   const handleCreate = () => {
     const errs: string[] = [];
     if (!name.trim()) errs.push('Название группы обязательно');
-    if (!teacherId) errs.push('Выберите преподавателя');
     if (price <= 0) errs.push('Укажите стоимость');
     if (hours <= 0) errs.push('Укажите количество часов');
     if (scheduleEntries.length === 0) errs.push('Добавьте хотя бы один день занятий');
@@ -112,8 +111,8 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       level,
       courseType,
       hours,
-      teacherId,
-      teacherName: teachers.find(t => t.id === teacherId)?.name || '',
+      teacherId: teacherId === '__unassigned__' ? '' : teacherId,
+      teacherName: teachers.find(t => t.id === teacherId)?.name || 'Преподаватель не назначен',
       textbook,
       studentIds: [],
       lessonIds: [],
@@ -150,8 +149,8 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
       courseType,
       hours,
       price,
-      teacherId,
-      teacherName: teachers.find(t => t.id === teacherId)?.name || '',
+      teacherId: teacherId === '__unassigned__' ? null : teacherId,
+      teacherName: teachers.find(t => t.id === teacherId)?.name || 'Преподаватель не назначен',
       textbook,
       startDate: now,
       endDate: new Date(now.getFullYear() + 1, 0, 1),
@@ -175,7 +174,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
 
         store.addScheduleItem({
           id: `real_si_${groupId}_${formatDate(start)}_${s.startTime?.replace(':', '') || ''}`,
-          teacherId,
+          teacherId: teacherId === '__unassigned__' ? '' : teacherId,
           groupId,
           lessonType: courseType === 'individual' ? 'individual' : 'lesson',
           start,
@@ -189,7 +188,7 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
           groupLanguage: language,
           courseType,
           format: s.zoomRoom ? 'online' : 'offline',
-          teacherName: teachers.find(t => t.id === teacherId)?.name || '',
+          teacherName: teachers.find(t => t.id === teacherId)?.name || 'Преподаватель не назначен',
         });
       });
     }
@@ -261,10 +260,11 @@ export default function CreateGroupDialog({ open, onOpenChange, onCreated }: Cre
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Преподаватель *</Label>
+              <Label className="text-xs">Преподаватель</Label>
               <Select value={teacherId} onValueChange={setTeacherId}>
                 <SelectTrigger className="text-xs h-8"><SelectValue placeholder="Выберите..." /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__unassigned__">Преподаватель не назначен</SelectItem>
                   {teachers.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                 </SelectContent>
               </Select>
